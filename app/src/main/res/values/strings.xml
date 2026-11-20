@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">নূর বাংলা</string>
+    <string name="app_tagline">বাংলাদেশী মুসলিমদের দৈনন্দিন ইবাদত সঙ্গী</string>
+    <string name="nav_home">সময়সূচী</string>
+    <string name="nav_quran">কুরআন</string>
+    <string name="nav_tools">টুলস</string>
+    <string name="nav_tracker">ট্র্যাকার</string>
+    <string name="nav_profile">প্রোফাইল</string>
+    <string name="sign_in_google">গুগল দিয়ে সাইন ইন করুন</string>
+    <string name="sign_out">সাইন আউট</string>
+    <string name="adhan_channel_name">আযান ও নামাজের সতর্কতা</string>
+    <string name="adhan_channel_desc">প্রতিদিনের নামাজের ওয়াক্ত ও পূর্ব-সতর্কতার নোটিফিকেশন</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "নূর বাংলা",
+  "description": "বাংলাদেশী মুসলিমদের জন্য বাংলা ইসলামিক অ্যাপ: নামাজের সময়সূচী, আযান, অফলাইন কুরআন, কিবলা, তাসবিহ ও ক্লাউড সিঙ্কসহ সালাত ট্র্যাকার।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,153 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidPrayerStatus(status) {
+      return status is string && status in ['NONE', 'ON_TIME', 'LATE', 'QAZA'];
+    }
+
+    function isValidPrayerLog(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.dateKey is string && data.dateKey.size() == 10 && data.dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+             isValidPrayerStatus(data.fajrStatus) &&
+             isValidPrayerStatus(data.dhuhrStatus) &&
+             isValidPrayerStatus(data.asrStatus) &&
+             isValidPrayerStatus(data.maghribStatus) &&
+             isValidPrayerStatus(data.ishaStatus) &&
+             data.note is string && data.note.size() <= 500 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidQuranBookmark(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.surahNumber is int && data.surahNumber >= 1 && data.surahNumber <= 114 &&
+             data.ayahNumber is int && data.ayahNumber >= 1 && data.ayahNumber <= 286 &&
+             data.surahNameBn is string && data.surahNameBn.size() >= 1 && data.surahNameBn.size() <= 80 &&
+             data.arabicText is string && data.arabicText.size() >= 1 && data.arabicText.size() <= 2000 &&
+             data.banglaText is string && data.banglaText.size() >= 1 && data.banglaText.size() <= 2000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidUserPreferences(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.districtId is string && data.districtId.size() >= 1 && data.districtId.size() <= 40 &&
+             data.asrMethod is string && data.asrMethod in ['HANAFI', 'SHAFI'] &&
+             data.themeMode is string && data.themeMode in ['SYSTEM', 'LIGHT', 'DARK'] &&
+             data.accentTheme is string && data.accentTheme in ['ISLAMIC_GREEN', 'ROYAL_BLUE', 'GOLD', 'MEDINA_TEAL', 'DESERT_ROSE', 'NIGHT_INDIGO'] &&
+             data.quranDarkMode is bool &&
+             data.quranFontSize is int && data.quranFontSize >= 14 && data.quranFontSize <= 32 &&
+             data.prePrayerMinutes is int && data.prePrayerMinutes >= 0 && data.prePrayerMinutes <= 45 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId}/prayer_logs/{dateKey} {
+      allow get: if isOwner(userId) && isValidId(dateKey);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(dateKey) &&
+                       dateKey == incoming().dateKey &&
+                       incoming().keys().hasAll([
+                         'userId', 'dateKey', 'fajrStatus', 'dhuhrStatus',
+                         'asrStatus', 'maghribStatus', 'ishaStatus', 'note',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'dateKey', 'fajrStatus', 'dhuhrStatus',
+                         'asrStatus', 'maghribStatus', 'ishaStatus', 'note',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPrayerLog(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(dateKey) &&
+                       incoming().userId == existing().userId &&
+                       incoming().dateKey == existing().dateKey &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidPrayerLog(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'fajrStatus', 'dhuhrStatus', 'asrStatus',
+                         'maghribStatus', 'ishaStatus', 'note', 'updatedAt'
+                       ]);
+      allow delete: if isOwner(userId) && isValidId(dateKey);
+    }
+
+    match /users/{userId}/bookmarks/{bookmarkId} {
+      allow get: if isOwner(userId) && isValidId(bookmarkId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(bookmarkId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'surahNumber', 'ayahNumber', 'surahNameBn',
+                         'arabicText', 'banglaText', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'surahNumber', 'ayahNumber', 'surahNameBn',
+                         'arabicText', 'banglaText', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidQuranBookmark(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(bookmarkId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidQuranBookmark(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'surahNameBn', 'arabicText', 'banglaText', 'updatedAt'
+                       ]);
+      allow delete: if isOwner(userId) && isValidId(bookmarkId);
+    }
+
+    match /users/{userId}/preferences/{prefId} {
+      allow get: if isOwner(userId) && isValidId(prefId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+                       isValidId(prefId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'districtId', 'asrMethod', 'themeMode',
+                         'accentTheme', 'quranDarkMode', 'quranFontSize',
+                         'prePrayerMinutes', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'districtId', 'asrMethod', 'themeMode',
+                         'accentTheme', 'quranDarkMode', 'quranFontSize',
+                         'prePrayerMinutes', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserPreferences(incoming());
+      allow update: if isOwner(userId) &&
+                       isValidId(prefId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserPreferences(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'districtId', 'asrMethod', 'themeMode', 'accentTheme',
+                         'quranDarkMode', 'quranFontSize', 'prePrayerMinutes', 'updatedAt'
+                       ]);
+      allow delete: if isOwner(userId) && isValidId(prefId);
+    }
+  }
+}

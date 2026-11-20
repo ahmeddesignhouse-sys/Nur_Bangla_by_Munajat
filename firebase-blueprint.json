@@ -1,0 +1,199 @@
+{
+  "entities": {
+    "PrayerLog": {
+      "title": "PrayerLog",
+      "description": "Daily 5-waqt prayer tracking record synced across devices.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase user UID."
+        },
+        "dateKey": {
+          "type": "string",
+          "description": "ISO date key in yyyy-MM-dd format."
+        },
+        "fajrStatus": {
+          "type": "string",
+          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
+          "description": "Fajr completion status."
+        },
+        "dhuhrStatus": {
+          "type": "string",
+          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
+          "description": "Dhuhr completion status."
+        },
+        "asrStatus": {
+          "type": "string",
+          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
+          "description": "Asr completion status."
+        },
+        "maghribStatus": {
+          "type": "string",
+          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
+          "description": "Maghrib completion status."
+        },
+        "ishaStatus": {
+          "type": "string",
+          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
+          "description": "Isha completion status."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional daily reflection note in Bangla."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on creation (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on last update (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "dateKey",
+        "fajrStatus",
+        "dhuhrStatus",
+        "asrStatus",
+        "maghribStatus",
+        "ishaStatus",
+        "note",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "QuranBookmark": {
+      "title": "QuranBookmark",
+      "description": "Bookmarked Quran Ayah with Arabic and Bangla translation.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase user UID."
+        },
+        "surahNumber": {
+          "type": "integer",
+          "description": "Surah number (1-114)."
+        },
+        "ayahNumber": {
+          "type": "integer",
+          "description": "Ayah number within Surah."
+        },
+        "surahNameBn": {
+          "type": "string",
+          "description": "Bangla Surah name."
+        },
+        "arabicText": {
+          "type": "string",
+          "description": "Arabic verse text."
+        },
+        "banglaText": {
+          "type": "string",
+          "description": "Bangla translation text."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on update."
+        }
+      },
+      "required": [
+        "userId",
+        "surahNumber",
+        "ayahNumber",
+        "surahNameBn",
+        "arabicText",
+        "banglaText",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User preferences for theme, district, calculation method, and Quran reader.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase user UID."
+        },
+        "districtId": {
+          "type": "string",
+          "description": "Selected Bangladesh district ID."
+        },
+        "asrMethod": {
+          "type": "string",
+          "enum": ["HANAFI", "SHAFI"],
+          "description": "Asr calculation juristic method."
+        },
+        "themeMode": {
+          "type": "string",
+          "enum": ["SYSTEM", "LIGHT", "DARK"],
+          "description": "App theme mode."
+        },
+        "accentTheme": {
+          "type": "string",
+          "enum": ["ISLAMIC_GREEN", "ROYAL_BLUE", "GOLD", "MEDINA_TEAL", "DESERT_ROSE", "NIGHT_INDIGO"],
+          "description": "Accent color theme."
+        },
+        "quranDarkMode": {
+          "type": "boolean",
+          "description": "Eye-comfort dark mode for Quran reader."
+        },
+        "quranFontSize": {
+          "type": "integer",
+          "description": "Quran reader font size in sp."
+        },
+        "prePrayerMinutes": {
+          "type": "integer",
+          "description": "Pre-prayer reminder lead minutes."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp on update."
+        }
+      },
+      "required": [
+        "userId",
+        "districtId",
+        "asrMethod",
+        "themeMode",
+        "accentTheme",
+        "quranDarkMode",
+        "quranFontSize",
+        "prePrayerMinutes",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/prayer_logs/{dateKey}": {
+      "schema": { "$ref": "#/entities/PrayerLog" },
+      "description": "User-scoped daily 5-waqt prayer logs."
+    },
+    "/users/{userId}/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/QuranBookmark" },
+      "description": "User-scoped Quran Ayah bookmarks."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "User-scoped app preferences synced across devices."
+    }
+  }
+}
