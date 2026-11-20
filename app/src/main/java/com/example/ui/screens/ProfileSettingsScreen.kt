@@ -69,8 +69,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.BuildConfig
 import com.example.alarm.AdhanAlarmReceiver
+import com.example.alarm.AdhanPlaybackService
 import com.example.data.model.AccentTheme
 import com.example.data.model.AdhanVoice
 import com.example.data.model.AsrMethod
@@ -127,6 +130,7 @@ fun ProfileSettingsScreen(
     var isSigningIn by remember { mutableStateOf(false) }
     var showDistrictSheet by remember { mutableStateOf(false) }
     var showWidgetGuideDialog by remember { mutableStateOf(false) }
+    val adhanPlayback by AdhanPlaybackService.playbackState.collectAsStateWithLifecycle()
 
     var hasNotifPermission by remember {
         mutableStateOf(
@@ -495,8 +499,8 @@ fun ProfileSettingsScreen(
                             Text(
                                 text = tr(
                                     isEn,
-                                    "• অতিথি মোড: গুগল সাইন-ইন ছাড়াই সম্পূর্ণ অ্যাপ অফলাইনে ব্যবহার করুন।\n• ইন-অ্যাপ আপডেট: নতুন ভার্সন এলে সরাসরি অ্যাপের ভেতর থেকেই ডাউনলোড ও ইনস্টল করুন।",
-                                    "• Guest Mode: Use the full app offline without Google Sign-In.\n• In-App Updates: Check, download, and install new releases directly inside Nur Bangla."
+                                    "• পূর্ণ অফলাইন মক্কা, মদীনা ও আল-আকসা আযান অ্যালার্ম।\n• দৈনিক হাদিস ও আয়াত সুন্দর PNG কার্ড ছবি হিসেবে শেয়ার (স্টোরি/পোস্ট)।\n• হোম স্ক্রিনে পরিষ্কার নামাজ কার্ড ও স্পষ্ট মাকরুহ সময়ের ডিজাইন।\n• মসজিদ ও হালাল ফাইন্ডারে নির্ভরযোগ্য সার্চ ও অ্যাপের ভেতরেই লাইভ ম্যাপ।",
+                                    "• Full offline Makkah, Madinah & Al-Aqsa Adhan alarm recordings.\n• Share Daily Hadith & Ayah as clean full-text PNG cards (Story/Post).\n• Clean separate Home current-prayer card & high-contrast Makruh times.\n• Reliable Mosque & Halal Finder with auto-expanding radius & in-app map."
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1116,7 +1120,7 @@ fun ProfileSettingsScreen(
                         }
                         TextButton(
                             onClick = {
-                                AdhanAlarmReceiver.stopActiveAudio()
+                                AdhanAlarmReceiver.stopActiveAudio(context)
                                 onStatusMessage(
                                     tr(isEn, "আযান শব্দ বন্ধ করা হয়েছে", "Adhan sound stopped")
                                 )
@@ -1125,6 +1129,73 @@ fun ProfileSettingsScreen(
                         ) {
                             Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
                             Text(tr(isEn, "বন্ধ", "Stop"))
+                        }
+                    }
+
+                    if (adhanPlayback.isPlaying) {
+                        val posSec = (adhanPlayback.positionMs / 1000).coerceAtLeast(0)
+                        val durSec = (adhanPlayback.durationMs / 1000).coerceAtLeast(1)
+                        val progress = (adhanPlayback.positionMs.toFloat() / adhanPlayback.durationMs.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
+                        val timeText = String.format(
+                            java.util.Locale.US,
+                            "%02d:%02d / %02d:%02d",
+                            posSec / 60, posSec % 60,
+                            durSec / 60, durSec % 60
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("adhan_now_playing_banner")
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = tr(
+                                                isEn,
+                                                "চলছে: ${adhanPlayback.voice.titleBn}",
+                                                "Playing: ${adhanPlayback.voice.titleEn}"
+                                            ),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = if (isEn) timeText else BanglaUtils.toBanglaDigits(timeText),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Button(
+                                        onClick = {
+                                            AdhanAlarmReceiver.stopActiveAudio(context)
+                                            onStatusMessage(tr(isEn, "আযান বন্ধ করা হয়েছে", "Adhan stopped"))
+                                        },
+                                        modifier = Modifier.testTag("adhan_banner_stop_button")
+                                    ) {
+                                        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.size(4.dp))
+                                        Text(tr(isEn, "থামান", "Stop"))
+                                    }
+                                }
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                )
+                            }
                         }
                     }
 

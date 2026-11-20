@@ -23,15 +23,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
@@ -79,26 +82,42 @@ import com.example.data.repository.HalalRestaurantRepository
 import com.example.data.repository.HalalSearchResult
 import com.example.data.repository.MosqueRepository
 import com.example.data.repository.NearbyHalalRestaurant
+import com.example.ui.components.MapPlacePin
+import com.example.ui.components.NearbyPlacesMapView
+import com.example.ui.components.formatRadiusExpansionBanner
 import com.example.ui.theme.StatusOnTimeColor
 import com.example.util.BanglaUtils
 import com.example.util.LocalAppLanguage
 import com.example.util.LocationHelper
 import com.example.util.isEnglishLang
 import com.example.util.tr
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+private enum class HalalViewMode { MAP, LIST }
 
 private sealed class HalalScreenState {
     data object NeedsPermission : HalalScreenState()
     data object LocationOff : HalalScreenState()
     data object Loading : HalalScreenState()
     data object Offline : HalalScreenState()
-    data class Loaded(val restaurants: List<NearbyHalalRestaurant>) : HalalScreenState()
+    data class Loaded(
+        val restaurants: List<NearbyHalalRestaurant>,
+        val requestedRadiusMeters: Int,
+        val effectiveRadiusMeters: Int
+    ) : HalalScreenState() {
+        val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
+    }
     data class Error(val message: String) : HalalScreenState()
 }
 
 @Composable
 fun HalalFinderScreen(
+    fallbackLat: Double? = null,
+    fallbackLon: Double? = null,
+    fallbackLocationLabel: String? = null,
     onStatusMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -111,10 +130,14 @@ fun HalalFinderScreen(
     val repository = remember(context) { HalalRestaurantRepository(context) }
 
     var screenState by remember { mutableStateOf<HalalScreenState>(HalalScreenState.Loading) }
+    var viewMode by remember { mutableStateOf(HalalViewMode.MAP) }
     var searchQuery by remember { mutableStateOf("") }
     var radiusMeters by remember { mutableIntStateOf(5000) }
     var userCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var userPlaceLabel by remember { mutableStateOf<String?>(null) }
+    var userPlaceLabel by remember { mutableStateOf(fallbackLocationLabel) }
+    var selectedMapPinId by remember { mutableStateOf<String?>(null) }
+    var activeSearchJob by remember { mutableStateOf<Job?>(null) }
+    var geocodeJob by remember { mutableStateOf<Job?>(null) }
 
     fun hasLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -130,47 +153,121 @@ fun HalalFinderScreen(
         }
     }
 
-    fun loadHalalPlacesFor(lat: Double, lon: Double, radius: Int) {
-        scope.launch {
+    fun loadHalalPlacesFor(lat: Double, lon: Double, radius: Int, forceRefresh: Boolean = false) {
+        activeSearchJob?.cancel()
+        activeSearchJob = scope.launch {
+            if (!repository.isOnline()) {
+                screenState = HalalScreenState.Offline
+                return@launch
+            }
             screenState = HalalScreenState.Loading
-            when (val res = repository.findNearbyHalalRestaurants(lat, lon, radius)) {
-                is HalalSearchResult.Offline -> screenState = HalalScreenState.Offline
-                is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(res.restaurants)
-                is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
-                    if (isEn) res.messageEn else res.messageBn
+            selectedMapPinId = null
+            try {
+                when (val res = repository.findNearbyHalalRestaurants(lat, lon, radius, forceRefresh = forceRefresh)) {
+                    is HalalSearchResult.Offline -> screenState = HalalScreenState.Offline
+                    is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
+                        restaurants = res.restaurants,
+                        requestedRadiusMeters = res.requestedRadiusMeters,
+                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                    )
+                    is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
+                        if (isEn) res.messageEn else res.messageBn
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Exception) {
+                screenState = HalalScreenState.Error(
+                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
                 )
             }
         }
     }
 
-    fun detectGpsAndLoad() {
-        if (!hasLocationPermission()) {
-            screenState = HalalScreenState.NeedsPermission
-            return
-        }
-        if (!isLocationEnabled()) {
-            screenState = HalalScreenState.LocationOff
-            return
-        }
+    fun detectGpsAndLoad(forceRefresh: Boolean = false) {
+        // Check offline immediately (< 50 ms) before even touching GPS
         if (!repository.isOnline()) {
+            activeSearchJob?.cancel()
             screenState = HalalScreenState.Offline
             return
         }
-        screenState = HalalScreenState.Loading
-        LocationHelper.fetchCurrentGpsLocation(
-            context = context,
-            scope = scope,
-            isEnglish = isEn,
-            showToast = false,
-            onResolved = { lat, lon, label, _ ->
-                userCoords = lat to lon
-                userPlaceLabel = label
-                loadHalalPlacesFor(lat, lon, radiusMeters)
-            },
-            onError = { errMsg ->
-                screenState = HalalScreenState.Error(errMsg)
+        if (!hasLocationPermission()) {
+            activeSearchJob?.cancel()
+            screenState = HalalScreenState.NeedsPermission
+            return
+        }
+        if (!isLocationEnabled() && (fallbackLat == null || fallbackLon == null)) {
+            activeSearchJob?.cancel()
+            screenState = HalalScreenState.LocationOff
+            return
+        }
+        activeSearchJob?.cancel()
+        activeSearchJob = scope.launch {
+            screenState = HalalScreenState.Loading
+            selectedMapPinId = null
+            val resolved = LocationHelper.resolveLocationFast(
+                context = context,
+                fallbackLat = fallbackLat,
+                fallbackLon = fallbackLon
+            )
+            if (resolved == null) {
+                screenState = if (!isLocationEnabled()) {
+                    HalalScreenState.LocationOff
+                } else {
+                    HalalScreenState.Error(
+                        tr(
+                            isEn,
+                            "জিপিএস লোকেশন পাওয়া যায়নি। লোকেশন চালু করে আবার চেষ্টা করুন।",
+                            "GPS location unavailable. Please enable Location and try again."
+                        )
+                    )
+                }
+                return@launch
             }
-        )
+
+            userCoords = resolved.latitude to resolved.longitude
+
+            // Non-blocking reverse geocode so Overpass starts immediately
+            geocodeJob?.cancel()
+            geocodeJob = scope.launch {
+                val place = LocationHelper.reverseGeocodeCityCountry(
+                    context,
+                    resolved.latitude,
+                    resolved.longitude,
+                    isEn
+                )
+                if (!place.isNullOrBlank()) {
+                    userPlaceLabel = place
+                }
+            }
+
+            try {
+                when (
+                    val res = repository.findNearbyHalalRestaurants(
+                        userLat = resolved.latitude,
+                        userLon = resolved.longitude,
+                        radiusMeters = radiusMeters,
+                        forceRefresh = forceRefresh
+                    )
+                ) {
+                    is HalalSearchResult.Offline -> screenState = HalalScreenState.Offline
+                    is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
+                        restaurants = res.restaurants,
+                        requestedRadiusMeters = res.requestedRadiusMeters,
+                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                    )
+                    is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
+                        if (isEn) res.messageEn else res.messageBn
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Exception) {
+                screenState = HalalScreenState.Error(
+                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                )
+            }
+        }
     }
 
     val permLauncher = rememberLauncherForActivityResult(
@@ -189,7 +286,14 @@ fun HalalFinderScreen(
         detectGpsAndLoad()
     }
 
-    // Auto-refresh when returning from system Location settings
+    // Cancel any in-flight Overpass / GPS requests when leaving this screen
+    DisposableEffect(Unit) {
+        onDispose {
+            activeSearchJob?.cancel()
+            geocodeJob?.cancel()
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME &&
@@ -239,7 +343,7 @@ fun HalalFinderScreen(
                 }
             }
             IconButton(
-                onClick = { detectGpsAndLoad() },
+                onClick = { detectGpsAndLoad(forceRefresh = true) },
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .testTag("halal_refresh_button")
@@ -250,6 +354,47 @@ fun HalalFinderScreen(
                 )
             }
         }
+
+        // Map / List Toggle Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = viewMode == HalalViewMode.MAP,
+                onClick = { viewMode = HalalViewMode.MAP },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                label = { Text(tr(isEn, "ম্যাপ (Map)", "Map View")) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("halal_view_map")
+            )
+            FilterChip(
+                selected = viewMode == HalalViewMode.LIST,
+                onClick = { viewMode = HalalViewMode.LIST },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                label = { Text(tr(isEn, "তালিকা (List)", "List View")) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("halal_view_list")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Search input
         OutlinedTextField(
@@ -280,22 +425,23 @@ fun HalalFinderScreen(
                 .testTag("halal_search_input")
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Radius Filter Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+        // Radius Filter Row (2 / 5 / 10 / 20 km)
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = tr(isEn, "দূরত্ব:", "Radius:"),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            listOf(2000, 5000, 10000).forEach { r ->
+            item {
+                Text(
+                    text = tr(isEn, "দূরত্ব:", "Radius:"),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(MosqueRepository.RADIUS_STEPS_METERS) { r ->
                 val km = r / 1000
                 FilterChip(
                     selected = radiusMeters == r,
@@ -316,7 +462,7 @@ fun HalalFinderScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         when (val state = screenState) {
             is HalalScreenState.NeedsPermission -> {
@@ -361,14 +507,14 @@ fun HalalFinderScreen(
             is HalalScreenState.Offline -> {
                 HalalStatusCard(
                     icon = Icons.Default.WifiOff,
-                    title = tr(isEn, "ইন্টারনেট সংযোগ প্রয়োজন", "Internet Required"),
+                    title = tr(isEn, "ইন্টারনেট নেই", "No Internet Connection"),
                     body = tr(
                         isEn,
-                        "হালাল রেস্টুরেন্ট খোঁজার জন্য ইন্টারনেট সংযোগ প্রয়োজন (OpenStreetMap প্লেস ডেটা)। ইন্টারনেট চালু করে পুনরায় চেষ্টা করুন।",
-                        "Internet connection is required to search nearby halal restaurants (OpenStreetMap Places data). Connect and retry."
+                        "হালাল রেস্টুরেন্ট খুঁজতে ও ম্যাপ দেখতে ইন্টারনেট চালু করে আবার চেষ্টা করুন।",
+                        "Turn on internet connection to search nearby halal restaurants and view the map, then retry."
                     ),
-                    primaryButtonLabel = tr(isEn, "পুনরায় চেষ্টা করুন", "Retry"),
-                    onPrimaryClick = { detectGpsAndLoad() },
+                    primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
+                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "halal_offline_retry"
                 )
             }
@@ -399,10 +545,14 @@ fun HalalFinderScreen(
             is HalalScreenState.Error -> {
                 HalalStatusCard(
                     icon = Icons.Default.Restaurant,
-                    title = tr(isEn, "তথ্য লোড করা যায়নি", "Unable to Load Places"),
-                    body = state.message,
+                    title = state.message,
+                    body = tr(
+                        isEn,
+                        "ওপেনস্ট্রিটম্যাপ সার্ভার থেকে তথ্য আনতে সময় লাগছে। কিছুক্ষণ পর আবার চেষ্টা করুন।",
+                        "Could not get a timely response from the map server. Please try again."
+                    ),
                     primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
-                    onPrimaryClick = { detectGpsAndLoad() },
+                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "halal_error_retry"
                 )
             }
@@ -411,26 +561,112 @@ fun HalalFinderScreen(
                 val filtered = remember(state.restaurants, searchQuery) {
                     HalalRestaurantRepository.filterRestaurants(state.restaurants, searchQuery)
                 }
+
+                // Auto-expanded radius notice banner
+                if (state.wasExpanded && state.restaurants.isNotEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("halal_expanded_radius_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = formatRadiusExpansionBanner(
+                                    requestedRadiusMeters = state.requestedRadiusMeters,
+                                    effectiveRadiusMeters = state.effectiveRadiusMeters,
+                                    isMosque = false,
+                                    isEnglish = isEn
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
                 if (filtered.isEmpty()) {
                     HalalStatusCard(
                         icon = Icons.Default.Restaurant,
-                        title = tr(isEn, "কোনো হালাল রেস্টুরেন্ট পাওয়া যায়নি", "No Halal Restaurants Found"),
+                        title = tr(isEn, "এই এলাকায় রেস্টুরেন্ট পাওয়া যায়নি", "No Restaurants Found in This Area"),
                         body = if (searchQuery.isNotBlank()) {
                             tr(
                                 isEn,
                                 "আপনার অনুসন্ধানের সাথে মিলে এমন কোনো রেস্টুরেন্ট পাওয়া যায়নি।",
-                                "No halal restaurants matched your search query."
+                                "No restaurants matched your search query."
                             )
                         } else {
                             tr(
                                 isEn,
-                                "এই দূরত্বের মধ্যে কোনো হালাল রেস্টুরেন্ট পাওয়া যায়নি। দূরত্ব বাড়িয়ে (যেমন ১০ কি.মি.) চেষ্টা করুন।",
-                                "No halal restaurants found within this radius. Try expanding the search radius to 10 km."
+                                "২০ কিমি দূরত্বের মধ্যে কোনো রেস্টুরেন্ট পাওয়া যায়নি। আবার চেষ্টা করুন।",
+                                "No restaurants were found even after expanding to 20 km. Please try again."
                             )
                         },
                         primaryButtonLabel = tr(isEn, "পুনরায় খুঁজুন", "Search Again"),
-                        onPrimaryClick = { detectGpsAndLoad() },
+                        onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                         buttonTag = "halal_empty_retry"
+                    )
+                } else if (viewMode == HalalViewMode.MAP) {
+                    val coords = userCoords
+                    val mapLat = coords?.first ?: filtered.first().latitude
+                    val mapLon = coords?.second ?: filtered.first().longitude
+                    val pins = remember(filtered, isEn) {
+                        filtered.map { r ->
+                            val dist = formatHalalDistanceKm(r.distanceKm, isEn)
+                            val dir = MosqueRepository.cardinalLabel(r.bearingFromUserDeg, isEn)
+                            val sub = listOf(r.cuisine, r.address)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" • ")
+                            MapPlacePin(
+                                id = r.id,
+                                title = r.displayName(isEn),
+                                subtitle = sub,
+                                distanceLabel = "$dist ($dir)",
+                                badge = r.halalBadge(isEn),
+                                latitude = r.latitude,
+                                longitude = r.longitude
+                            )
+                        }
+                    }
+                    NearbyPlacesMapView(
+                        userLat = mapLat,
+                        userLon = mapLon,
+                        userLocationLabel = userPlaceLabel ?: tr(isEn, "আপনার অবস্থান", "Your Location"),
+                        pins = pins,
+                        selectedPinId = selectedMapPinId,
+                        isEnglish = isEn,
+                        countBadgeText = tr(
+                            isEn,
+                            "${BanglaUtils.formatNumber(filtered.size, false)}টি রেস্টুরেন্ট",
+                            "${filtered.size} Places"
+                        ),
+                        pinColor = StatusOnTimeColor,
+                        onSelectPin = { pinId -> selectedMapPinId = pinId },
+                        onClearSelection = { selectedMapPinId = null },
+                        onOpenDirections = { pin ->
+                            openHalalDirectionsInGoogleMaps(
+                                context,
+                                pin.latitude,
+                                pin.longitude,
+                                pin.title,
+                                isEn,
+                                onStatusMessage
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 } else {
                     LazyColumn(
@@ -442,8 +678,8 @@ fun HalalFinderScreen(
                             Text(
                                 text = tr(
                                     isEn,
-                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি হালাল রেস্টুরেন্ট (দূরত্ব অনুযায়ী • ট্যাপ করে গুগল ম্যাপে খুলুন)",
-                                    "${filtered.size} halal restaurants (sorted by distance • tap to open Google Maps)"
+                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি হালাল রেস্টুরেন্ট (দূরত্ব অনুযায়ী • ম্যাপে দেখতে ট্যাপ করুন)",
+                                    "${filtered.size} halal restaurants (sorted by distance • tap to view on map)"
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -453,8 +689,19 @@ fun HalalFinderScreen(
                             HalalRestaurantCard(
                                 place = place,
                                 isEnglish = isEn,
+                                onCardTap = {
+                                    selectedMapPinId = place.id
+                                    viewMode = HalalViewMode.MAP
+                                },
                                 onOpenMaps = {
-                                    openHalalPlaceInGoogleMaps(context, place, isEn, onStatusMessage)
+                                    openHalalDirectionsInGoogleMaps(
+                                        context,
+                                        place.latitude,
+                                        place.longitude,
+                                        place.displayName(isEn),
+                                        isEn,
+                                        onStatusMessage
+                                    )
                                 }
                             )
                         }
@@ -470,6 +717,7 @@ fun HalalFinderScreen(
 private fun HalalRestaurantCard(
     place: NearbyHalalRestaurant,
     isEnglish: Boolean,
+    onCardTap: () -> Unit,
     onOpenMaps: () -> Unit
 ) {
     val distStr = formatHalalDistanceKm(place.distanceKm, isEnglish)
@@ -478,7 +726,7 @@ private fun HalalRestaurantCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onOpenMaps)
+            .clickable(onClick = onCardTap)
             .testTag("halal_card_${place.id}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(18.dp),
@@ -515,7 +763,6 @@ private fun HalalRestaurantCard(
                     fontWeight = FontWeight.Bold
                 )
 
-                // Halal badge + optional rating pill
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -627,7 +874,7 @@ private fun HalalRestaurantCard(
             ) {
                 Icon(
                     imageVector = Icons.Default.Directions,
-                    contentDescription = tr(isEnglish, "গুগল ম্যাপে খুলুন", "Open in Google Maps"),
+                    contentDescription = tr(isEnglish, "দিকনির্দেশনা", "Directions"),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -697,27 +944,33 @@ private fun formatHalalDistanceKm(distanceKm: Double, isEnglish: Boolean): Strin
     return if (isEnglish) "$formatted km" else "${BanglaUtils.toBanglaDigits(formatted)} কি.মি."
 }
 
-private fun openHalalPlaceInGoogleMaps(
+private fun openHalalDirectionsInGoogleMaps(
     context: Context,
-    place: NearbyHalalRestaurant,
+    latitude: Double,
+    longitude: Double,
+    placeName: String,
     isEnglish: Boolean,
     onStatusMessage: (String) -> Unit
 ) {
-    val label = Uri.encode(place.displayName(isEnglish))
-    val geoUri = Uri.parse("geo:${place.latitude},${place.longitude}?q=${place.latitude},${place.longitude}($label)")
-    val mapsIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+    val navUri = Uri.parse("google.navigation:q=$latitude,$longitude")
+    val navIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
         setPackage("com.google.android.apps.maps")
     }
+    val label = Uri.encode(placeName)
+    val geoUri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude($label)")
+    val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
     try {
-        if (mapsIntent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(mapsIntent)
-        } else {
-            val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${place.latitude},${place.longitude}")
-            context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+        when {
+            navIntent.resolveActivity(context.packageManager) != null -> context.startActivity(navIntent)
+            geoIntent.resolveActivity(context.packageManager) != null -> context.startActivity(geoIntent)
+            else -> {
+                val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude")
+                context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+            }
         }
     } catch (_: Exception) {
         onStatusMessage(
-            tr(isEnglish, "গুগল ম্যাপ খোলা যায়নি", "Could not open Google Maps")
+            tr(isEnglish, "দিকনির্দেশনা খোলা যায়নি", "Could not open directions")
         )
     }
 }

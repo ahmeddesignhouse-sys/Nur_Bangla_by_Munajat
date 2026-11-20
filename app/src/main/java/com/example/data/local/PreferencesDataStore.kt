@@ -132,10 +132,10 @@ class PreferencesDataStore(context: Context) {
             return PerPrayerAlertSetting(enabled = enabled, voice = voice, reminderMinutesBefore = reminder)
         }
         val fajrSetting = readWaqtSetting(WaqtType.FAJR, Keys.FAJR_ALERT, AdhanVoice.MAKKAH, AdhanAlertMode.FULL_ADHAN)
-        val dhuhrSetting = readWaqtSetting(WaqtType.DHUHR, Keys.DHUHR_ALERT, AdhanVoice.MADINAH, AdhanAlertMode.BEEP)
-        val asrSetting = readWaqtSetting(WaqtType.ASR, Keys.ASR_ALERT, AdhanVoice.AL_AQSA, AdhanAlertMode.BEEP)
+        val dhuhrSetting = readWaqtSetting(WaqtType.DHUHR, Keys.DHUHR_ALERT, AdhanVoice.MADINAH, AdhanAlertMode.FULL_ADHAN)
+        val asrSetting = readWaqtSetting(WaqtType.ASR, Keys.ASR_ALERT, AdhanVoice.AL_AQSA, AdhanAlertMode.FULL_ADHAN)
         val maghribSetting = readWaqtSetting(WaqtType.MAGHRIB, Keys.MAGHRIB_ALERT, AdhanVoice.MAKKAH, AdhanAlertMode.FULL_ADHAN)
-        val ishaSetting = readWaqtSetting(WaqtType.ISHA, Keys.ISHA_ALERT, AdhanVoice.MADINAH, AdhanAlertMode.BEEP)
+        val ishaSetting = readWaqtSetting(WaqtType.ISHA, Keys.ISHA_ALERT, AdhanVoice.MADINAH, AdhanAlertMode.FULL_ADHAN)
 
         LocalAppSettings(
             languageCode = normalizedLang,

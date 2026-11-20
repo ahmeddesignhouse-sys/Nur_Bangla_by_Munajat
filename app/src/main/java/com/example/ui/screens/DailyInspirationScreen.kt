@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.DailyShareSheet
 import com.example.ui.theme.AmiriFontFamily
 import com.example.util.BanglaUtils
 import com.example.util.DailyInspirationEntry
@@ -74,6 +75,7 @@ fun DailyInspirationScreen(
     }
     val activeEntry = entries.find { it.dateKey == selectedDateKey } ?: entries.firstOrNull()
     val previousDays = remember(entries) { entries.drop(1) }
+    var shareSheetEntry by remember { mutableStateOf<DailyInspirationEntry?>(null) }
 
     val copyText: (String) -> Unit = { text ->
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -178,12 +180,12 @@ fun DailyInspirationScreen(
                             Text(tr(isEn, "কপি", "Copy"))
                         }
                         FilledTonalButton(
-                            onClick = { shareText(activeEntry.formatShareText(isEn)) },
+                            onClick = { shareSheetEntry = activeEntry },
                             modifier = Modifier.testTag("daily_share_all_button")
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.size(6.dp))
-                            Text(tr(isEn, "শেয়ার", "Share"))
+                            Text(tr(isEn, "কার্ড শেয়ার", "Share Card"))
                         }
                     }
                 }
@@ -472,6 +474,15 @@ fun DailyInspirationScreen(
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
+    }
+
+    shareSheetEntry?.let { entry ->
+        DailyShareSheet(
+            entry = entry,
+            isEnglish = isEn,
+            onStatusMessage = onStatusMessage,
+            onDismiss = { shareSheetEntry = null }
+        )
     }
 }
 

@@ -16,8 +16,9 @@ android {
     applicationId = "com.noorbangla.islam"
     minSdk = 24
     targetSdk = 36
-    versionCode = 7
-    versionName = "1.6"
+    versionCode = 8
+    versionName = "1.7"
+    manifestPlaceholders["MAPS_API_KEY"] = System.getenv("MAPS_API_KEY") ?: "YOUR_GOOGLE_MAPS_API_KEY"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -121,6 +122,9 @@ dependencies {
   // implementation(libs.moshi.kotlin)
   // implementation(libs.okhttp)
   implementation(libs.play.services.location)
+  implementation(libs.play.services.maps)
+  implementation(libs.maps.compose)
+  implementation(libs.osmdroid.android)
   // implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)

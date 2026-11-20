@@ -175,39 +175,44 @@ enum class AdhanVoice(
     val shortTitleBn: String,
     val shortTitleEn: String,
     val subtitleBn: String,
-    val subtitleEn: String
+    val subtitleEn: String,
+    val isFullAdhan: Boolean
 ) {
     MAKKAH(
-        titleBn = "মক্কা আযান (হিজাজ)",
-        titleEn = "Makkah Adhan (Hijaz)",
-        shortTitleBn = "মক্কা",
-        shortTitleEn = "Makkah",
-        subtitleBn = "মসজিদুল হারাম ধাঁচের আযানের সুর",
-        subtitleEn = "Masjid al-Haram inspired Adhan tone"
+        titleBn = "মক্কা আযান (মসজিদুল হারাম)",
+        titleEn = "Makkah Adhan (Masjid al-Haram)",
+        shortTitleBn = "মক্কা (পূর্ণ)",
+        shortTitleEn = "Makkah Full",
+        subtitleBn = "পূর্ণ অফলাইন মক্কা আযান (প্রায় ৩.৫ মিনিট)",
+        subtitleEn = "Full offline Makkah Masjid al-Haram Adhan (~3.5 min)",
+        isFullAdhan = true
     ),
     MADINAH(
-        titleBn = "মদীনা আযান (রাস্ত)",
-        titleEn = "Madinah Adhan (Rast)",
-        shortTitleBn = "মদীনা",
-        shortTitleEn = "Madinah",
-        subtitleBn = "মসজিদে নববী ধাঁচের প্রশান্ত সুর",
-        subtitleEn = "Masjid an-Nabawi serene melodic cadence"
+        titleBn = "মদীনা আযান (মসজিদে নববী)",
+        titleEn = "Madinah Adhan (Masjid an-Nabawi)",
+        shortTitleBn = "মদীনা (পূর্ণ)",
+        shortTitleEn = "Madinah Full",
+        subtitleBn = "পূর্ণ অফলাইন মদীনা আযান (প্রায় ৩.৫ মিনিট)",
+        subtitleEn = "Full offline Madinah Masjid an-Nabawi Adhan (~3.5 min)",
+        isFullAdhan = true
     ),
     AL_AQSA(
-        titleBn = "আল-আকসা / মিশারী সুর",
-        titleEn = "Al-Aqsa / Mishary Tone",
+        titleBn = "আল-আকসা আযান (পূর্ণ)",
+        titleEn = "Al-Aqsa Adhan (Full)",
         shortTitleBn = "আল-আকসা",
-        shortTitleEn = "Al-Aqsa",
-        subtitleBn = "মৃদু বায়াতি সুরের আযান কল",
-        subtitleEn = "Gentle Bayati melodic Adhan chime"
+        shortTitleEn = "Al-Aqsa Full",
+        subtitleBn = "পূর্ণ অফলাইন মসজিদুল আকসা আযান (প্রায় ৩ মিনিট)",
+        subtitleEn = "Full offline Masjid al-Aqsa Adhan (~3 min)",
+        isFullAdhan = true
     ),
     SHORT_BEEP(
         titleBn = "সংক্ষিপ্ত নোটিফিকেশন বিপ",
         titleEn = "Short Notification Beep",
         shortTitleBn = "বিপ",
         shortTitleEn = "Beep",
-        subtitleBn = "হালকা সিস্টেম নোটিফিকেশন টোন",
-        subtitleEn = "Brief system notification tone"
+        subtitleBn = "আযান ছাড়া হালকা সিস্টেম নোটিফিকেশন শব্দ",
+        subtitleEn = "Brief notification tone without Adhan",
+        isFullAdhan = false
     ),
     SILENT_VIBRATE(
         titleBn = "নীরব / শুধু ভাইব্রেশন",
@@ -215,7 +220,8 @@ enum class AdhanVoice(
         shortTitleBn = "ভাইব্রেট",
         shortTitleEn = "Vibrate",
         subtitleBn = "শব্দ ছাড়া শুধুমাত্র ভাইব্রেশন ও নোটিফিকেশন",
-        subtitleEn = "Vibration & notification without sound"
+        subtitleEn = "Vibration & notification without sound",
+        isFullAdhan = false
     );
 
     fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
@@ -255,10 +261,10 @@ data class PerPrayerAlertSetting(
 
 data class WaqtAlertConfig(
     val fajr: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
-    val dhuhr: AdhanAlertMode = AdhanAlertMode.BEEP,
-    val asr: AdhanAlertMode = AdhanAlertMode.BEEP,
+    val dhuhr: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
+    val asr: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
     val maghrib: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
-    val isha: AdhanAlertMode = AdhanAlertMode.BEEP,
+    val isha: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
     val prePrayerMinutes: Int = 15,
     val fajrSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MAKKAH, 15),
     val dhuhrSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MADINAH, 10),

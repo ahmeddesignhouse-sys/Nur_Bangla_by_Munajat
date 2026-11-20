@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -24,15 +25,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Mosque
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Refresh
@@ -77,29 +82,47 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.repository.MosqueRepository
 import com.example.data.repository.MosqueSearchResult
 import com.example.data.repository.NearbyMosque
+import com.example.ui.components.MapPlacePin
+import com.example.ui.components.NearbyPlacesMapView
+import com.example.ui.components.formatRadiusExpansionBanner
 import com.example.util.BanglaUtils
 import com.example.util.LocalAppLanguage
 import com.example.util.LocationHelper
 import com.example.util.isEnglishLang
 import com.example.util.tr
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+private enum class MosqueViewMode { MAP, LIST }
 
 private sealed class MosqueScreenState {
     data object NeedsPermission : MosqueScreenState()
     data object LocationOff : MosqueScreenState()
     data object Loading : MosqueScreenState()
     data object Offline : MosqueScreenState()
-    data class Loaded(val mosques: List<NearbyMosque>) : MosqueScreenState()
+    data class Loaded(
+        val mosques: List<NearbyMosque>,
+        val requestedRadiusMeters: Int,
+        val effectiveRadiusMeters: Int
+    ) : MosqueScreenState() {
+        val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
+    }
     data class Error(val message: String) : MosqueScreenState()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MosqueFinderScreen(
+    fallbackLat: Double? = null,
+    fallbackLon: Double? = null,
+    fallbackLocationLabel: String? = null,
     onStatusMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    BackHandler(onBack = onBack)
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -107,11 +130,15 @@ fun MosqueFinderScreen(
     val repository = remember(context) { MosqueRepository(context) }
 
     var screenState by remember { mutableStateOf<MosqueScreenState>(MosqueScreenState.Loading) }
+    var viewMode by remember { mutableStateOf(MosqueViewMode.MAP) }
     var searchQuery by remember { mutableStateOf("") }
     var radiusMeters by remember { mutableIntStateOf(5000) }
     var userCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var userPlaceLabel by remember { mutableStateOf<String?>(null) }
+    var userPlaceLabel by remember { mutableStateOf(fallbackLocationLabel) }
     var selectedMosque by remember { mutableStateOf<NearbyMosque?>(null) }
+    var selectedMapPinId by remember { mutableStateOf<String?>(null) }
+    var activeSearchJob by remember { mutableStateOf<Job?>(null) }
+    var geocodeJob by remember { mutableStateOf<Job?>(null) }
 
     fun hasLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -127,47 +154,121 @@ fun MosqueFinderScreen(
         }
     }
 
-    fun loadMosquesFor(lat: Double, lon: Double, radius: Int) {
-        scope.launch {
+    fun loadMosquesFor(lat: Double, lon: Double, radius: Int, forceRefresh: Boolean = false) {
+        activeSearchJob?.cancel()
+        activeSearchJob = scope.launch {
+            if (!repository.isOnline()) {
+                screenState = MosqueScreenState.Offline
+                return@launch
+            }
             screenState = MosqueScreenState.Loading
-            when (val res = repository.findNearbyMosques(lat, lon, radius)) {
-                is MosqueSearchResult.Offline -> screenState = MosqueScreenState.Offline
-                is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(res.mosques)
-                is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
-                    if (isEn) res.messageEn else res.messageBn
+            selectedMapPinId = null
+            try {
+                when (val res = repository.findNearbyMosques(lat, lon, radius, forceRefresh = forceRefresh)) {
+                    is MosqueSearchResult.Offline -> screenState = MosqueScreenState.Offline
+                    is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
+                        mosques = res.mosques,
+                        requestedRadiusMeters = res.requestedRadiusMeters,
+                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                    )
+                    is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
+                        if (isEn) res.messageEn else res.messageBn
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Exception) {
+                screenState = MosqueScreenState.Error(
+                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
                 )
             }
         }
     }
 
-    fun detectGpsAndLoad() {
-        if (!hasLocationPermission()) {
-            screenState = MosqueScreenState.NeedsPermission
-            return
-        }
-        if (!isLocationEnabled()) {
-            screenState = MosqueScreenState.LocationOff
-            return
-        }
+    fun detectGpsAndLoad(forceRefresh: Boolean = false) {
+        // Check offline immediately (< 50 ms) before even touching GPS
         if (!repository.isOnline()) {
+            activeSearchJob?.cancel()
             screenState = MosqueScreenState.Offline
             return
         }
-        screenState = MosqueScreenState.Loading
-        LocationHelper.fetchCurrentGpsLocation(
-            context = context,
-            scope = scope,
-            isEnglish = isEn,
-            showToast = false,
-            onResolved = { lat, lon, label, _ ->
-                userCoords = lat to lon
-                userPlaceLabel = label
-                loadMosquesFor(lat, lon, radiusMeters)
-            },
-            onError = { errMsg ->
-                screenState = MosqueScreenState.Error(errMsg)
+        if (!hasLocationPermission()) {
+            activeSearchJob?.cancel()
+            screenState = MosqueScreenState.NeedsPermission
+            return
+        }
+        if (!isLocationEnabled() && (fallbackLat == null || fallbackLon == null)) {
+            activeSearchJob?.cancel()
+            screenState = MosqueScreenState.LocationOff
+            return
+        }
+        activeSearchJob?.cancel()
+        activeSearchJob = scope.launch {
+            screenState = MosqueScreenState.Loading
+            selectedMapPinId = null
+            val resolved = LocationHelper.resolveLocationFast(
+                context = context,
+                fallbackLat = fallbackLat,
+                fallbackLon = fallbackLon
+            )
+            if (resolved == null) {
+                screenState = if (!isLocationEnabled()) {
+                    MosqueScreenState.LocationOff
+                } else {
+                    MosqueScreenState.Error(
+                        tr(
+                            isEn,
+                            "জিপিএস লোকেশন পাওয়া যায়নি। লোকেশন চালু করে আবার চেষ্টা করুন।",
+                            "GPS location unavailable. Please enable Location and try again."
+                        )
+                    )
+                }
+                return@launch
             }
-        )
+
+            userCoords = resolved.latitude to resolved.longitude
+
+            // Non-blocking reverse geocode so Overpass starts immediately
+            geocodeJob?.cancel()
+            geocodeJob = scope.launch {
+                val place = LocationHelper.reverseGeocodeCityCountry(
+                    context,
+                    resolved.latitude,
+                    resolved.longitude,
+                    isEn
+                )
+                if (!place.isNullOrBlank()) {
+                    userPlaceLabel = place
+                }
+            }
+
+            try {
+                when (
+                    val res = repository.findNearbyMosques(
+                        userLat = resolved.latitude,
+                        userLon = resolved.longitude,
+                        radiusMeters = radiusMeters,
+                        forceRefresh = forceRefresh
+                    )
+                ) {
+                    is MosqueSearchResult.Offline -> screenState = MosqueScreenState.Offline
+                    is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
+                        mosques = res.mosques,
+                        requestedRadiusMeters = res.requestedRadiusMeters,
+                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                    )
+                    is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
+                        if (isEn) res.messageEn else res.messageBn
+                    )
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (_: Exception) {
+                screenState = MosqueScreenState.Error(
+                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                )
+            }
+        }
     }
 
     val permLauncher = rememberLauncherForActivityResult(
@@ -186,7 +287,14 @@ fun MosqueFinderScreen(
         detectGpsAndLoad()
     }
 
-    // Auto-refresh when returning from system Location settings
+    // Cancel any in-flight Overpass / GPS requests when leaving this screen
+    DisposableEffect(Unit) {
+        onDispose {
+            activeSearchJob?.cancel()
+            geocodeJob?.cancel()
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME &&
@@ -236,7 +344,7 @@ fun MosqueFinderScreen(
                 }
             }
             IconButton(
-                onClick = { detectGpsAndLoad() },
+                onClick = { detectGpsAndLoad(forceRefresh = true) },
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .testTag("mosque_refresh_button")
@@ -248,7 +356,48 @@ fun MosqueFinderScreen(
             }
         }
 
-        // Search & Radius Filter Row
+        // Map / List Toggle Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = viewMode == MosqueViewMode.MAP,
+                onClick = { viewMode = MosqueViewMode.MAP },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                label = { Text(tr(isEn, "ম্যাপ (Map)", "Map View")) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("mosque_view_map")
+            )
+            FilterChip(
+                selected = viewMode == MosqueViewMode.LIST,
+                onClick = { viewMode = MosqueViewMode.LIST },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                label = { Text(tr(isEn, "তালিকা (List)", "List View")) },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("mosque_view_list")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Search input
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -277,21 +426,23 @@ fun MosqueFinderScreen(
                 .testTag("mosque_search_input")
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+        // Radius Filter Row (2 / 5 / 10 / 20 km)
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = tr(isEn, "দূরত্ব:", "Radius:"),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            listOf(2000, 5000, 10000).forEach { r ->
+            item {
+                Text(
+                    text = tr(isEn, "দূরত্ব:", "Radius:"),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(MosqueRepository.RADIUS_STEPS_METERS) { r ->
                 val km = r / 1000
                 FilterChip(
                     selected = radiusMeters == r,
@@ -306,12 +457,13 @@ fun MosqueFinderScreen(
                     },
                     label = {
                         Text("${BanglaUtils.formatNumber(km, isEn)} ${tr(isEn, "কি.মি.", "km")}")
-                    }
+                    },
+                    modifier = Modifier.testTag("mosque_radius_$r")
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         when (val state = screenState) {
             is MosqueScreenState.NeedsPermission -> {
@@ -356,14 +508,14 @@ fun MosqueFinderScreen(
             is MosqueScreenState.Offline -> {
                 MosqueStatusCard(
                     icon = Icons.Default.WifiOff,
-                    title = tr(isEn, "ইন্টারনেট সংযোগ প্রয়োজন", "Internet Required"),
+                    title = tr(isEn, "ইন্টারনেট নেই", "No Internet Connection"),
                     body = tr(
                         isEn,
-                        "নিকটবর্তী মসজিদের তালিকা অনলাইন প্লেস সার্চ (OpenStreetMap) থেকে লোড হয়। ইন্টারনেট চালু করে পুনরায় চেষ্টা করুন।",
-                        "Nearby mosque discovery requires an internet connection (OpenStreetMap Places search). Connect to the internet and retry."
+                        "নিকটবর্তী মসজিদের তালিকা ও ম্যাপ দেখতে ইন্টারনেট চালু করে আবার চেষ্টা করুন।",
+                        "Turn on internet connection to load nearby mosques and the map, then retry."
                     ),
-                    primaryButtonLabel = tr(isEn, "পুনরায় চেষ্টা করুন", "Retry"),
-                    onPrimaryClick = { detectGpsAndLoad() },
+                    primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
+                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "mosque_offline_retry"
                 )
             }
@@ -390,10 +542,14 @@ fun MosqueFinderScreen(
             is MosqueScreenState.Error -> {
                 MosqueStatusCard(
                     icon = Icons.Default.Mosque,
-                    title = tr(isEn, "মসজিদ লোড করা যায়নি", "Unable to Load Mosques"),
-                    body = state.message,
+                    title = state.message,
+                    body = tr(
+                        isEn,
+                        "ওপেনস্ট্রিটম্যাপ সার্ভার থেকে তথ্য আনতে সময় লাগছে। কিছুক্ষণ পর আবার চেষ্টা করুন।",
+                        "Could not get a timely response from the map server. Please try again."
+                    ),
                     primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
-                    onPrimaryClick = { detectGpsAndLoad() },
+                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "mosque_error_retry"
                 )
             }
@@ -402,22 +558,99 @@ fun MosqueFinderScreen(
                 val filtered = remember(state.mosques, searchQuery) {
                     MosqueRepository.filterMosques(state.mosques, searchQuery)
                 }
+
+                // Auto-expanded radius notice banner
+                if (state.wasExpanded && state.mosques.isNotEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("mosque_expanded_radius_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = formatRadiusExpansionBanner(
+                                    requestedRadiusMeters = state.requestedRadiusMeters,
+                                    effectiveRadiusMeters = state.effectiveRadiusMeters,
+                                    isMosque = true,
+                                    isEnglish = isEn
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
                 if (filtered.isEmpty()) {
                     MosqueStatusCard(
                         icon = Icons.Default.Mosque,
-                        title = tr(isEn, "কোনো মসজিদ পাওয়া যায়নি", "No Mosques Found"),
+                        title = tr(isEn, "এই এলাকায় মসজিদ পাওয়া যায়নি", "No Mosques Found in This Area"),
                         body = if (searchQuery.isNotBlank()) {
                             tr(isEn, "আপনার অনুসন্ধানের সাথে মিলে এমন কোনো মসজিদ পাওয়া যায়নি।", "No mosques matched your search query.")
                         } else {
                             tr(
                                 isEn,
-                                "এই দূরত্বের মধ্যে কোনো মসজিদ পাওয়া যায়নি। দূরত্ব বাড়িয়ে (যেমন ১০ কি.মি.) চেষ্টা করুন।",
-                                "No mosques found within this radius. Try expanding the search radius."
+                                "২০ কিমি দূরত্বের মধ্যে কোনো মসজিদ পাওয়া যায়নি। আবার চেষ্টা করুন।",
+                                "No mosques were found even after expanding to 20 km. Please try again."
                             )
                         },
                         primaryButtonLabel = tr(isEn, "পুনরায় খুঁজুন", "Search Again"),
-                        onPrimaryClick = { detectGpsAndLoad() },
+                        onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                         buttonTag = "mosque_empty_retry"
+                    )
+                } else if (viewMode == MosqueViewMode.MAP) {
+                    val coords = userCoords
+                    val mapLat = coords?.first ?: filtered.first().latitude
+                    val mapLon = coords?.second ?: filtered.first().longitude
+                    val pins = remember(filtered, isEn) {
+                        filtered.map { m ->
+                            val dist = formatDistanceKm(m.distanceKm, isEn)
+                            val dir = MosqueRepository.cardinalLabel(m.bearingFromUserDeg, isEn)
+                            val qiblaDeg = BanglaUtils.formatNumber(m.qiblaBearingDeg.toInt(), isEn)
+                            MapPlacePin(
+                                id = m.id,
+                                title = m.displayName(isEn),
+                                subtitle = m.address,
+                                distanceLabel = "$dist ($dir)",
+                                badge = "${tr(isEn, "কিবলা", "Qibla")} $qiblaDeg°",
+                                latitude = m.latitude,
+                                longitude = m.longitude
+                            )
+                        }
+                    }
+                    NearbyPlacesMapView(
+                        userLat = mapLat,
+                        userLon = mapLon,
+                        userLocationLabel = userPlaceLabel ?: tr(isEn, "আপনার অবস্থান", "Your Location"),
+                        pins = pins,
+                        selectedPinId = selectedMapPinId,
+                        isEnglish = isEn,
+                        countBadgeText = tr(
+                            isEn,
+                            "${BanglaUtils.formatNumber(filtered.size, false)}টি মসজিদ",
+                            "${filtered.size} Mosques"
+                        ),
+                        pinColor = MaterialTheme.colorScheme.primary,
+                        onSelectPin = { pinId -> selectedMapPinId = pinId },
+                        onClearSelection = { selectedMapPinId = null },
+                        onOpenDirections = { pin ->
+                            openMosqueDirectionsInGoogleMaps(context, pin.latitude, pin.longitude, pin.title, isEn, onStatusMessage)
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 } else {
                     LazyColumn(
@@ -441,7 +674,16 @@ fun MosqueFinderScreen(
                                 mosque = mosque,
                                 isEnglish = isEn,
                                 onClick = { selectedMosque = mosque },
-                                onOpenMaps = { openMosqueInGoogleMaps(context, mosque, isEn, onStatusMessage) }
+                                onOpenMaps = {
+                                    openMosqueDirectionsInGoogleMaps(
+                                        context,
+                                        mosque.latitude,
+                                        mosque.longitude,
+                                        mosque.displayName(isEn),
+                                        isEn,
+                                        onStatusMessage
+                                    )
+                                }
                             )
                         }
                         item { Spacer(modifier = Modifier.height(16.dp)) }
@@ -451,7 +693,7 @@ fun MosqueFinderScreen(
         }
     }
 
-    // Mosque Detail Sheet with Qibla direction from that mosque + Open in Google Maps
+    // Mosque Detail Sheet with Qibla direction + Directions
     selectedMosque?.let { mosque ->
         val distStr = formatDistanceKm(mosque.distanceKm, isEn)
         val dirStr = MosqueRepository.cardinalLabel(mosque.bearingFromUserDeg, isEn)
@@ -553,17 +795,41 @@ fun MosqueFinderScreen(
                     }
                 }
 
-                Button(
-                    onClick = {
-                        openMosqueInGoogleMaps(context, mosque, isEn, onStatusMessage)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("mosque_open_maps_button")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.Default.Directions, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(tr(isEn, "গুগল ম্যাপে দিকনির্দেশনা দেখুন", "Open in Google Maps"))
+                    OutlinedButton(
+                        onClick = {
+                            selectedMapPinId = mosque.id
+                            selectedMosque = null
+                            viewMode = MosqueViewMode.MAP
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(tr(isEn, "ম্যাপে দেখুন", "Show on Map"))
+                    }
+                    Button(
+                        onClick = {
+                            openMosqueDirectionsInGoogleMaps(
+                                context,
+                                mosque.latitude,
+                                mosque.longitude,
+                                mosque.displayName(isEn),
+                                isEn,
+                                onStatusMessage
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("mosque_open_maps_button")
+                    ) {
+                        Icon(Icons.Default.Directions, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(tr(isEn, "দিকনির্দেশনা", "Directions"))
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -640,7 +906,7 @@ private fun MosqueListCard(
                 onClick = onOpenMaps,
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.Directions, contentDescription = tr(isEnglish, "ম্যাপ", "Maps"), modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Directions, contentDescription = tr(isEnglish, "দিকনির্দেশনা", "Directions"), modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -708,27 +974,33 @@ private fun formatDistanceKm(distanceKm: Double, isEnglish: Boolean): String {
     return if (isEnglish) "$formatted km" else "${BanglaUtils.toBanglaDigits(formatted)} কি.মি."
 }
 
-private fun openMosqueInGoogleMaps(
+private fun openMosqueDirectionsInGoogleMaps(
     context: Context,
-    mosque: NearbyMosque,
+    latitude: Double,
+    longitude: Double,
+    placeName: String,
     isEnglish: Boolean,
     onStatusMessage: (String) -> Unit
 ) {
-    val label = Uri.encode(mosque.displayName(isEnglish))
-    val geoUri = Uri.parse("geo:${mosque.latitude},${mosque.longitude}?q=${mosque.latitude},${mosque.longitude}($label)")
-    val mapsIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+    val navUri = Uri.parse("google.navigation:q=$latitude,$longitude")
+    val navIntent = Intent(Intent.ACTION_VIEW, navUri).apply {
         setPackage("com.google.android.apps.maps")
     }
+    val label = Uri.encode(placeName)
+    val geoUri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude($label)")
+    val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
     try {
-        if (mapsIntent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(mapsIntent)
-        } else {
-            val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${mosque.latitude},${mosque.longitude}")
-            context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+        when {
+            navIntent.resolveActivity(context.packageManager) != null -> context.startActivity(navIntent)
+            geoIntent.resolveActivity(context.packageManager) != null -> context.startActivity(geoIntent)
+            else -> {
+                val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude")
+                context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+            }
         }
     } catch (_: Exception) {
         onStatusMessage(
-            tr(isEnglish, "গুগল ম্যাপ খোলা যায়নি", "Could not open Google Maps")
+            tr(isEnglish, "দিকনির্দেশনা খোলা যায়নি", "Could not open directions")
         )
     }
 }

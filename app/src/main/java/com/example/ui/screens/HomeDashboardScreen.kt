@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WbTwilight
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -83,6 +85,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -93,12 +96,15 @@ import com.example.data.model.AdhanAlertMode
 import com.example.data.model.AsrMethod
 import com.example.data.model.BdDistrict
 import com.example.data.model.CalculationMethod
+import com.example.data.model.DailyPrayerSchedule
+import com.example.data.model.NextWaqtInfo
 import com.example.data.model.ThemeMode
 import com.example.data.model.WaqtType
 import com.example.ui.NoorUiState
+import com.example.ui.components.DailyShareSheet
 import com.example.ui.components.DistrictPickerSheet
-import com.example.ui.theme.StatusForbiddenColor
 import com.example.util.BanglaUtils
+import com.example.util.DailyInspirationEntry
 import com.example.util.LocalAppLanguage
 import com.example.util.LocationHelper
 import com.example.util.isEnglishLang
@@ -132,6 +138,8 @@ fun HomeDashboardScreen(
     var showMethodSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var alertDialogWaqt by remember { mutableStateOf<WaqtType?>(null) }
+    var shareEntry by remember { mutableStateOf<DailyInspirationEntry?>(null) }
+    val isDarkSurface = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     val fetchGps: (Boolean) -> Unit = { showToast ->
         LocationHelper.fetchCurrentGpsLocation(
@@ -303,17 +311,18 @@ fun HomeDashboardScreen(
             }
         }
 
-        // Hero Countdown Banner
+        // Clean Mosque Hero Banner — ONLY App Name (zero prayer text over photo)
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(196.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .height(132.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .testTag("home_hero_banner")
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.img_islamic_hero),
-                    contentDescription = tr(isEn, "পরবর্তী নামাজের সময়", "Next prayer time"),
+                    contentDescription = tr(isEn, "নূর বাংলা", "Nur Bangla"),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -321,19 +330,69 @@ fun HomeDashboardScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            Brush.horizontalGradient(
+                            Brush.verticalGradient(
                                 colors = listOf(
-                                    Color.Black.copy(alpha = 0.80f),
-                                    Color.Black.copy(alpha = 0.45f)
+                                    Color.Black.copy(alpha = 0.25f),
+                                    Color.Black.copy(alpha = 0.72f)
                                 )
                             )
                         )
                 )
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .align(Alignment.BottomStart)
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "নূর বাংলা",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                    if (isEn) {
+                        Text(
+                            text = "Nur Bangla",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFFFE28A)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Separate Solid Current Prayer Card (solid WHITE in light mode, solid DARK in dark mode)
+        item {
+            val cardBg = if (isDarkSurface) Color(0xFF1A2421) else Color.White
+            val cardBorder = if (isDarkSurface) Color(0xFF2D4039) else Color(0xFFDCE5E1)
+            val titleInk = if (isDarkSurface) Color.White else Color(0xFF0E2920)
+            val subInk = if (isDarkSurface) Color(0xFFC4D4CE) else Color(0xFF3E524B)
+            val accentInk = if (isDarkSurface) Color(0xFFFFD875) else MaterialTheme.colorScheme.primary
+            val progressTrack = if (isDarkSurface) Color(0xFF2B3C36) else Color(0xFFE3ECE8)
+
+            val currentWaqt = uiState.currentWaqt
+            val next = uiState.nextWaqtInfo
+            val elapsedProgress = calculateWaqtProgress(
+                schedule = schedule,
+                currentWaqt = currentWaqt,
+                nextWaqtInfo = next
+            )
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, cardBorder, RoundedCornerShape(22.dp))
+                    .testTag("home_current_prayer_card"),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -341,76 +400,143 @@ fun HomeDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                            color = MaterialTheme.colorScheme.primary,
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            val activeLabel = if (uiState.currentWaqt != null && schedule != null) {
-                                val startStr = BanglaUtils.formatTime12h(schedule.minuteFor(uiState.currentWaqt), isEn)
-                                val endStr = BanglaUtils.formatTime12h(schedule.endMinuteFor(uiState.currentWaqt), isEn)
-                                "${tr(isEn, "চলমান", "Now")}: ${uiState.currentWaqt.title(isEn)} • $startStr - $endStr"
-                            } else {
-                                tr(isEn, "নিষিদ্ধ/বিরতি সময়", "Forbidden / Interval")
-                            }
                             Text(
-                                text = activeLabel,
+                                text = if (currentWaqt != null) {
+                                    tr(isEn, "চলমান ওয়াক্ত", "Current Prayer")
+                                } else {
+                                    tr(isEn, "নিষিদ্ধ / বিরতি সময়", "Forbidden / Interval")
+                                },
                                 style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
+
                         Surface(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .clickable { showMethodSheet = true },
-                            color = Color.White.copy(alpha = 0.16f)
+                            color = if (isDarkSurface) Color(0xFF263631) else Color(0xFFF0F5F3)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(Icons.Default.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = accentInk,
+                                    modifier = Modifier.size(14.dp)
+                                )
                                 Text(
                                     text = schedule?.appliedMethodTitle(isEn)
                                         ?: CalculationMethod.BANGLADESH_KARACHI.title(isEn),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = titleInk,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                     }
 
-                    val next = uiState.nextWaqtInfo
-                    Column {
-                        Text(
-                            text = if (next != null) {
-                                "${tr(isEn, "পরবর্তী ওয়াক্ত", "Next Prayer")}: ${next.waqt.title(isEn)} (${BanglaUtils.formatTime12h(next.targetMinuteOfDay, isEn)})"
-                            } else {
-                                tr(isEn, "সময়সূচী লোড হচ্ছে...", "Loading schedule...")
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.95f)
+                    // Large bold current prayer name + start–end time window
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = currentWaqt?.title(isEn)
+                                    ?: tr(isEn, "বিরতি সময়", "Interval Time"),
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = titleInk
+                            )
+                            if (currentWaqt != null && schedule != null) {
+                                val startStr = BanglaUtils.formatTime12h(schedule.minuteFor(currentWaqt), isEn)
+                                val endStr = BanglaUtils.formatTime12h(schedule.endMinuteFor(currentWaqt), isEn)
+                                Text(
+                                    text = "$startStr — $endStr",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = subInk
+                                )
+                            }
+                        }
+
+                        // Live Countdown block on right
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = if (next != null) {
+                                    "${tr(isEn, "পরবর্তী", "Next")}: ${next.waqt.title(isEn)}"
+                                } else {
+                                    tr(isEn, "পরবর্তী ওয়াক্ত", "Next Prayer")
+                                },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = subInk
+                            )
+                            Text(
+                                text = if (next != null) {
+                                    BanglaUtils.formatCountdown(next.remainingSeconds, isEn)
+                                } else {
+                                    if (isEn) "00:00:00" else "০০:০০:০০"
+                                },
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = accentInk
+                            )
+                            if (next != null) {
+                                Text(
+                                    text = BanglaUtils.formatTime12h(next.targetMinuteOfDay, isEn),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = subInk
+                                )
+                            }
+                        }
+                    }
+
+                    // Elapsed Waqt Progress Bar
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(
+                            progress = { elapsedProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .testTag("home_current_prayer_progress"),
+                            color = accentInk,
+                            trackColor = progressTrack
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (next != null) {
-                                BanglaUtils.formatCountdown(next.remainingSeconds, isEn)
-                            } else {
-                                if (isEn) "00:00:00" else "০০:০০:০০"
-                            },
-                            style = MaterialTheme.typography.displayLarge,
-                            color = Color(0xFFFFD875),
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = tr(
-                                isEn,
-                                "বাকি সময় (ঘণ্টা : মিনিট : সেকেন্ড)",
-                                "Time remaining (Hours : Minutes : Seconds)"
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.78f)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = tr(isEn, "ওয়াক্তের অগ্রগতি", "Waqt Progress"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = subInk
+                            )
+                            val pct = (elapsedProgress * 100f).toInt()
+                            Text(
+                                text = "${BanglaUtils.formatNumber(pct, isEn)}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = accentInk
+                            )
+                        }
                     }
                 }
             }
@@ -725,22 +851,7 @@ fun HomeDashboardScreen(
                                 )
                             }
                             IconButton(
-                                onClick = {
-                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, dailyInspiration.formatShareText(isEn))
-                                    }
-                                    try {
-                                        context.startActivity(
-                                            Intent.createChooser(
-                                                sendIntent,
-                                                tr(isEn, "শেয়ার করুন", "Share")
-                                            )
-                                        )
-                                    } catch (_: Exception) {
-                                        onStatusMessage(tr(isEn, "শেয়ার অ্যাপ পাওয়া যায়নি", "No share app available"))
-                                    }
-                                },
+                                onClick = { shareEntry = dailyInspiration },
                                 modifier = Modifier
                                     .minimumInteractiveComponentSize()
                                     .testTag("home_daily_share_button")
@@ -1078,27 +1189,36 @@ fun HomeDashboardScreen(
                 }
             }
 
-            // Forbidden Times Card
+            // Forbidden (Makruh) Prayer Times Card — High-contrast cream/amber palette
             item {
+                val makruhBg = if (isDarkSurface) Color(0xFF2B2118) else Color(0xFFFFF8E1)
+                val makruhBorder = if (isDarkSurface) Color(0xFF8C6239) else Color(0xFFE0B973)
+                val makruhHeading = if (isDarkSurface) Color(0xFFFFE0B2) else Color(0xFF3E2723)
+                val makruhBody = if (isDarkSurface) Color(0xFFFFF8E1) else Color(0xFF212121)
+                val makruhIconTint = if (isDarkSurface) Color(0xFFFFCA28) else Color(0xFFB45309)
+
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = StatusForbiddenColor.copy(alpha = 0.10f)
-                    ),
-                    shape = RoundedCornerShape(18.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.2.dp, makruhBorder, RoundedCornerShape(18.dp))
+                        .testTag("home_makruh_times_card"),
+                    colors = CardDefaults.cardColors(containerColor = makruhBg),
+                    shape = RoundedCornerShape(18.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Block,
-                                contentDescription = null,
-                                tint = StatusForbiddenColor
+                                imageVector = Icons.Default.WarningAmber,
+                                contentDescription = tr(isEn, "সতর্কতা", "Warning"),
+                                tint = makruhIconTint,
+                                modifier = Modifier.size(26.dp)
                             )
                             Text(
                                 text = tr(
@@ -1106,27 +1226,35 @@ fun HomeDashboardScreen(
                                     "নামাজের নিষিদ্ধ (মাকরুহ) সময়সমূহ",
                                     "Forbidden (Makruh) Prayer Times"
                                 ),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = StatusForbiddenColor
+                                fontSize = 19.sp,
+                                lineHeight = 25.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = makruhHeading
                             )
                         }
+                        HorizontalDivider(color = makruhBorder.copy(alpha = 0.55f))
                         schedule.forbiddenTimes.forEach { window ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = window.label(isEn),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.weight(1f)
+                                    fontSize = 16.sp,
+                                    lineHeight = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = makruhBody,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 10.dp)
                                 )
                                 Text(
-                                    text = "${BanglaUtils.formatTime12h(window.startMinute, isEn)} - ${BanglaUtils.formatTime12h(window.endMinute, isEn)}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = StatusForbiddenColor
+                                    text = "${BanglaUtils.formatTime12h(window.startMinute, isEn)} — ${BanglaUtils.formatTime12h(window.endMinute, isEn)}",
+                                    fontSize = 16.sp,
+                                    lineHeight = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = makruhHeading
                                 )
                             }
                         }
@@ -1356,6 +1484,37 @@ fun HomeDashboardScreen(
             }
         }
     }
+
+    shareEntry?.let { entry ->
+        DailyShareSheet(
+            entry = entry,
+            isEnglish = isEn,
+            onStatusMessage = onStatusMessage,
+            onDismiss = { shareEntry = null }
+        )
+    }
+}
+
+/**
+ * Computes the elapsed progress [0f..1f] inside the currently active Waqt window
+ * (handling overnight Isha wrap cleanly).
+ */
+fun calculateWaqtProgress(
+    schedule: DailyPrayerSchedule?,
+    currentWaqt: WaqtType?,
+    nextWaqtInfo: NextWaqtInfo?
+): Float {
+    if (schedule == null || currentWaqt == null || nextWaqtInfo == null) return 0f
+    val startMin = schedule.minuteFor(currentWaqt)
+    val endMin = schedule.endMinuteFor(currentWaqt)
+    val durationMinutes = if (endMin >= startMin) {
+        endMin - startMin
+    } else {
+        (24 * 60 - startMin) + endMin
+    }
+    val totalSeconds = (durationMinutes * 60L).coerceAtLeast(60L)
+    val remaining = nextWaqtInfo.remainingSeconds.coerceIn(0L, totalSeconds)
+    return ((totalSeconds - remaining).toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
 }
 
 @Composable

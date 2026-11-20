@@ -835,6 +835,9 @@ private fun MainNoorContent(
 
                         composable(ROUTE_MOSQUE_FINDER) {
                             MosqueFinderScreen(
+                                fallbackLat = uiState.activeLatitude,
+                                fallbackLon = uiState.activeLongitude,
+                                fallbackLocationLabel = uiState.locationDisplayTitle,
                                 onStatusMessage = viewModel::showMessage,
                                 onBack = { navController.popBackStack() }
                             )
@@ -852,6 +855,9 @@ private fun MainNoorContent(
 
                         composable(ROUTE_HALAL_FINDER) {
                             HalalFinderScreen(
+                                fallbackLat = uiState.activeLatitude,
+                                fallbackLon = uiState.activeLongitude,
+                                fallbackLocationLabel = uiState.locationDisplayTitle,
                                 onStatusMessage = viewModel::showMessage,
                                 onBack = { navController.popBackStack() }
                             )

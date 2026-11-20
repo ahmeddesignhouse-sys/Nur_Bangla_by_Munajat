@@ -9,4 +9,7 @@
     <cache-path
         name="nur_bangla_cache_updates"
         path="updates/" />
+    <cache-path
+        name="shared_cards"
+        path="shared_cards/" />
 </paths>
