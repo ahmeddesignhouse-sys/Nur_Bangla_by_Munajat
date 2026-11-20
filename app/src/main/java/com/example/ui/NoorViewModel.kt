@@ -1,13 +1,14 @@
 package com.example.ui
 
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.LocalAppSettings
-import com.example.data.local.PrayerLogEntity
 import com.example.data.local.QuranBookmarkEntity
 import com.example.data.model.AccentTheme
 import com.example.data.model.AdhanAlertMode
+import com.example.data.model.AdhanVoice
 import com.example.data.model.AsrMethod
 import com.example.data.model.BanglaDhikrCatalog
 import com.example.data.model.BangladeshiDistricts
@@ -16,14 +17,24 @@ import com.example.data.model.CalculationMethod
 import com.example.data.model.DailyPrayerSchedule
 import com.example.data.model.DhikrItem
 import com.example.data.model.NextWaqtInfo
-import com.example.data.model.PrayerStatus
 import com.example.data.model.QuranSearchHit
 import com.example.data.model.Surah
 import com.example.data.model.ThemeMode
 import com.example.data.model.WaqtType
 import com.example.data.repository.NoorRepository
 import com.example.util.BanglaUtils
+import com.example.util.DailyInspirationCatalog
+import com.example.util.DailyInspirationEntry
 import com.example.util.PrayerTimeCalculator
+import com.example.util.QuranAudioController
+import com.example.util.QuranAudioState
+import com.example.util.QuranReciter
+import com.example.util.RamadanEngine
+import com.example.util.SehriIftarCountdown
+import com.example.util.ZakatCalculator
+import com.example.util.ZakatHistoryRecord
+import com.example.util.isEnglishLang
+import com.example.util.tr
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -38,17 +49,12 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.Locale
 import java.util.TimeZone
-
-data class DailyPrayerSummary(
-    val dateKey: String,
-    val onTimeCount: Int,
-    val lateCount: Int,
-    val qazaCount: Int
-)
 
 data class NoorUiState(
     val isLoading: Boolean = true,
+    val isGuest: Boolean = false,
     val settings: LocalAppSettings = LocalAppSettings(),
     val activeDistrict: BdDistrict = BangladeshiDistricts.DEFAULT,
     val locationDisplayTitle: String = "ঢাকা জেলা",
@@ -59,40 +65,61 @@ data class NoorUiState(
     val todaySchedule: DailyPrayerSchedule? = null,
     val currentWaqt: WaqtType? = null,
     val nextWaqtInfo: NextWaqtInfo? = null,
-    val englishDateBn: String = "",
-    val banglaDateBn: String = "",
-    val hijriDateBn: String = "",
+    val isCurrentlyRamadan: Boolean = false,
+    val sehriIftarCountdown: SehriIftarCountdown? = null,
+    val zakatHistory: List<ZakatHistoryRecord> = emptyList(),
+    val todayDateKey: String = "",
+    val dailyQuranReadCount: Int = 0,
+    val dailyQuranReadKeys: Set<String> = emptySet(),
+    val todayInspiration: DailyInspirationEntry? = null,
+    val recentInspirations: List<DailyInspirationEntry> = emptyList(),
+    val quranAudioState: QuranAudioState = QuranAudioState(),
+    val englishDate: String = "",
+    val banglaDate: String = "",
+    val hijriDate: String = "",
     val qiblaBearing: Float = 277.5f,
     val distanceToKaabaKm: Int = 5176,
     val surahs: List<Surah> = emptyList(),
     val bookmarks: List<QuranBookmarkEntity> = emptyList(),
-    val prayerLogs: List<PrayerLogEntity> = emptyList(),
-    val selectedTrackerDateKey: String = BanglaUtils.getDateKey(Calendar.getInstance()),
     val globalSearchQuery: String = "",
     val quranSearchResults: List<QuranSearchHit> = emptyList(),
-    val logSearchResults: List<PrayerLogEntity> = emptyList(),
-    val currentStreakDays: Int = 0,
-    val totalOnTimePrayers: Int = 0,
-    val last7DaysSummary: List<DailyPrayerSummary> = emptyList(),
     val cloudSyncError: String? = null,
     val statusMessage: String? = null
 )
 
 class NoorViewModel(
+    private val appContext: Context,
     private val repository: NoorRepository,
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val isGuest: Boolean = LocalAppSettings.isGuestUserId(currentUserId)
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NoorUiState())
+    private val _uiState = MutableStateFlow(NoorUiState(isGuest = isGuest))
     val uiState: StateFlow<NoorUiState> = _uiState.asStateFlow()
 
+    private val tzRefreshTick = MutableStateFlow(0L)
     private var hasAppliedInitialRemotePrefs = false
+
+    private val quranAudioController = QuranAudioController(appContext) { surahNumber, ayahNumber ->
+        recordQuranAyahHeard(surahNumber, ayahNumber)
+    }
 
     init {
         loadQuranData()
+        observeAudioStream()
         observeLocalStreams()
-        observeCloudSyncStreams()
+        if (!isGuest) {
+            observeCloudSyncStreams()
+        }
         startCountdownTicker()
+    }
+
+    private fun observeAudioStream() {
+        viewModelScope.launch {
+            quranAudioController.audioState.collect { audio ->
+                _uiState.update { it.copy(quranAudioState = audio) }
+            }
+        }
     }
 
     private fun loadQuranData() {
@@ -106,13 +133,16 @@ class NoorViewModel(
         viewModelScope.launch {
             combine(
                 repository.settingsFlow,
-                repository.observeLocalPrayerLogs(currentUserId),
-                repository.observeLocalBookmarks(currentUserId)
-            ) { settings, logs, bookmarks ->
+                repository.observeLocalBookmarks(currentUserId),
+                tzRefreshTick
+            ) { settings, bookmarks, _ ->
+                val isEn = isEnglishLang(settings.languageCode)
                 val district = BangladeshiDistricts.findById(settings.districtId)
-                val isManual = !settings.useGps || settings.gpsLatitude == null || settings.gpsLongitude == null
-                val lat = if (!isManual) settings.gpsLatitude!! else district.latitude
-                val lon = if (!isManual) settings.gpsLongitude!! else district.longitude
+                val gpsLat = settings.gpsLatitude
+                val gpsLon = settings.gpsLongitude
+                val isManual = !settings.useGps || gpsLat == null || gpsLon == null
+                val lat = if (!isManual) gpsLat else district.latitude
+                val lon = if (!isManual) gpsLon else district.longitude
 
                 val nowMillis = System.currentTimeMillis()
                 val targetTz = PrayerTimeCalculator.resolveTimeZone(
@@ -122,7 +152,7 @@ class NoorViewModel(
                     atMillis = nowMillis
                 )
                 val tzHours = targetTz.getOffset(nowMillis) / 3_600_000.0
-                val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowMillis)
+                val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowMillis, isEn)
 
                 val now = Calendar.getInstance(targetTz)
                 val todayBase = PrayerTimeCalculator.calculateForDate(
@@ -147,21 +177,48 @@ class NoorViewModel(
                 val todaySchedule = todayBase.copy(ishaEndMinute = tomorrowSchedule.fajrMinute)
                 val nextWaqt = PrayerTimeCalculator.computeNextWaqt(now, todaySchedule, tomorrowSchedule.fajrMinute)
                 val currentWaqt = PrayerTimeCalculator.getCurrentWaqt(now, todaySchedule)
-                val (streak, totalOnTime, last7) = computeStats(logs)
+                val isRamadanNow = RamadanEngine.isCurrentlyRamadan(now, settings.hijriDayOffset)
+                val sehriIftarCd = RamadanEngine.computeSehriIftarCountdown(
+                    now = now,
+                    todaySchedule = todaySchedule,
+                    tomorrowSehriEndMinute = tomorrowSchedule.sehriEndMinute
+                )
+                val zakatHistory = ZakatCalculator.parseHistoryJson(settings.zakatHistoryJson)
+                val todayDateKey = DailyInspirationCatalog.dateKeyFor(now)
+                val todayReadKeys = settings.todayReadAyahKeys(todayDateKey)
+                val recentInspirations = DailyInspirationCatalog.todayAndPreviousSevenDays(
+                    todayCalendar = now,
+                    hijriDayOffset = settings.hijriDayOffset
+                )
+                quranAudioController.setReciter(QuranReciter.fromId(settings.quranReciterId))
 
                 val (title, subtitle) = if (isManual) {
-                    "${district.nameBn} জেলা" to "${district.divisionBn} বিভাগ • $tzLabel"
+                    if (isEn) {
+                        "${district.nameEn} District" to "${district.divisionEn} Division • $tzLabel"
+                    } else {
+                        "${district.nameBn} জেলা" to "${district.divisionBn} বিভাগ • $tzLabel"
+                    }
                 } else if (PrayerTimeCalculator.isInsideBangladesh(lat, lon)) {
-                    val label = settings.gpsLocationLabel?.takeIf { it.isNotBlank() } ?: district.nameBn
-                    "$label (জিপিএস)" to "${district.divisionBn} বিভাগ • $tzLabel"
+                    val label = settings.gpsLocationLabel?.takeIf { it.isNotBlank() } ?: district.displayName(isEn)
+                    if (isEn) {
+                        "$label (GPS)" to "${district.divisionEn} Division • $tzLabel"
+                    } else {
+                        "$label (জিপিএস)" to "${district.divisionBn} বিভাগ • $tzLabel"
+                    }
                 } else {
+                    val coords = String.format(Locale.US, "%.2f°, %.2f°", lat, lon)
                     val label = settings.gpsLocationLabel?.takeIf { it.isNotBlank() }
-                        ?: "${BanglaUtils.toBanglaDigits(String.format("%.2f°, %.2f°", lat, lon))}"
-                    "$label (জিপিএস)" to "স্বয়ংক্রিয় বিশ্বব্যাপী সময়সূচী • $tzLabel"
+                        ?: BanglaUtils.formatDigits(coords, isEn)
+                    if (isEn) {
+                        "$label (GPS)" to "Auto Worldwide Schedule • $tzLabel"
+                    } else {
+                        "$label (জিপিএস)" to "স্বয়ংক্রিয় বিশ্বব্যাপী সময়সূচী • $tzLabel"
+                    }
                 }
 
                 _uiState.value.copy(
                     isLoading = false,
+                    isGuest = isGuest,
                     settings = settings,
                     activeDistrict = district,
                     locationDisplayTitle = title,
@@ -172,16 +229,20 @@ class NoorViewModel(
                     todaySchedule = todaySchedule,
                     currentWaqt = currentWaqt,
                     nextWaqtInfo = nextWaqt,
-                    englishDateBn = BanglaUtils.getEnglishDateBangla(now),
-                    banglaDateBn = BanglaUtils.getBanglaCalendarDate(now),
-                    hijriDateBn = BanglaUtils.getHijriDateBangla(now),
+                    isCurrentlyRamadan = isRamadanNow,
+                    sehriIftarCountdown = sehriIftarCd,
+                    zakatHistory = zakatHistory,
+                    todayDateKey = todayDateKey,
+                    dailyQuranReadCount = todayReadKeys.size,
+                    dailyQuranReadKeys = todayReadKeys,
+                    todayInspiration = recentInspirations.firstOrNull(),
+                    recentInspirations = recentInspirations,
+                    englishDate = BanglaUtils.getGregorianDate(now, isEn),
+                    banglaDate = BanglaUtils.getBanglaCalendarDate(now, isEn),
+                    hijriDate = BanglaUtils.getHijriDate(now, isEn, settings.hijriDayOffset),
                     qiblaBearing = PrayerTimeCalculator.calculateQiblaBearing(lat, lon),
                     distanceToKaabaKm = PrayerTimeCalculator.distanceToKaabaKm(lat, lon),
-                    bookmarks = bookmarks,
-                    prayerLogs = logs,
-                    currentStreakDays = streak,
-                    totalOnTimePrayers = totalOnTime,
-                    last7DaysSummary = last7
+                    bookmarks = bookmarks
                 )
             }
                 .flowOn(Dispatchers.Default)
@@ -189,10 +250,9 @@ class NoorViewModel(
                     _uiState.update { current ->
                         computed.copy(
                             surahs = current.surahs,
-                            selectedTrackerDateKey = current.selectedTrackerDateKey,
+                            quranAudioState = current.quranAudioState,
                             globalSearchQuery = current.globalSearchQuery,
                             quranSearchResults = current.quranSearchResults,
-                            logSearchResults = current.logSearchResults,
                             cloudSyncError = current.cloudSyncError,
                             statusMessage = current.statusMessage
                         )
@@ -203,23 +263,6 @@ class NoorViewModel(
 
     private fun observeCloudSyncStreams() {
         viewModelScope.launch {
-            repository.remoteSync.observePrayerLogs(currentUserId)
-                .catch { error ->
-                    val fsErr = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (fsErr == null && error is CancellationException) throw error
-                    val root = fsErr ?: error
-                    Log.w(TAG, "Cloud prayer log sync paused", root)
-                    _uiState.update { it.copy(cloudSyncError = "ক্লাউড সিঙ্ক অফলাইনে রয়েছে (লোকাল ডেটা সুরক্ষিত)") }
-                }
-                .collect { remoteLogs ->
-                    repository.mergeRemotePrayerLogs(currentUserId, remoteLogs)
-                    _uiState.update { it.copy(cloudSyncError = null) }
-                }
-        }
-
-        viewModelScope.launch {
             repository.remoteSync.observeBookmarks(currentUserId)
                 .catch { error ->
                     val fsErr = generateSequence(error) { it.cause }
@@ -227,9 +270,20 @@ class NoorViewModel(
                         .firstOrNull()
                     if (fsErr == null && error is CancellationException) throw error
                     Log.w(TAG, "Cloud bookmark sync paused", fsErr ?: error)
+                    val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+                    _uiState.update {
+                        it.copy(
+                            cloudSyncError = tr(
+                                isEn,
+                                "ক্লাউড সিঙ্ক অফলাইনে রয়েছে (লোকাল ডেটা সুরক্ষিত)",
+                                "Cloud sync is offline (local data is safe)"
+                            )
+                        )
+                    }
                 }
                 .collect { remoteBookmarks ->
                     repository.mergeRemoteBookmarks(currentUserId, remoteBookmarks)
+                    _uiState.update { it.copy(cloudSyncError = null) }
                 }
         }
 
@@ -257,11 +311,12 @@ class NoorViewModel(
                 delay(1000L)
                 val state = _uiState.value
                 val schedule = state.todaySchedule ?: continue
+                val isEn = isEnglishLang(state.settings.languageCode)
                 val targetTz = TimeZone.getTimeZone(state.activeTimeZoneId)
                 val now = Calendar.getInstance(targetTz)
                 val nowMillis = now.timeInMillis
                 val tzHours = targetTz.getOffset(nowMillis) / 3_600_000.0
-                val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowMillis)
+                val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowMillis, isEn)
                 val tomorrow = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
                 val tomorrowSchedule = PrayerTimeCalculator.calculateForDate(
                     calendar = tomorrow,
@@ -274,13 +329,64 @@ class NoorViewModel(
                 )
                 val nextWaqt = PrayerTimeCalculator.computeNextWaqt(now, schedule, tomorrowSchedule.fajrMinute)
                 val currentWaqt = PrayerTimeCalculator.getCurrentWaqt(now, schedule)
+                val sehriIftarCd = RamadanEngine.computeSehriIftarCountdown(
+                    now = now,
+                    todaySchedule = schedule,
+                    tomorrowSehriEndMinute = tomorrowSchedule.sehriEndMinute
+                )
+                val currentDayKey = DailyInspirationCatalog.dateKeyFor(now)
+                if (state.todayDateKey.isNotEmpty() && currentDayKey != state.todayDateKey) {
+                    tzRefreshTick.value = nowMillis
+                }
                 _uiState.update {
                     it.copy(
                         nextWaqtInfo = nextWaqt,
-                        currentWaqt = currentWaqt
+                        currentWaqt = currentWaqt,
+                        sehriIftarCountdown = sehriIftarCd
                     )
                 }
             }
+        }
+    }
+
+    fun setLanguageCode(code: String, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        viewModelScope.launch {
+            val normalized = if (code == "en") "en" else "bn"
+            repository.preferences.setLanguageCode(normalized)
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
+            repository.syncPreferencesToCloud(currentUserId, latest)
+            showMessage(
+                if (normalized == "en") "Language switched to English"
+                else "ভাষা বাংলায় পরিবর্তন করা হয়েছে"
+            )
+        }
+    }
+
+    fun setUseGps(enabled: Boolean, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        viewModelScope.launch {
+            repository.preferences.setUseGps(enabled)
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
+            if (!enabled) {
+                val isEn = isEnglishLang(latest.languageCode)
+                val district = BangladeshiDistricts.findById(latest.districtId)
+                showMessage(
+                    tr(
+                        isEn,
+                        "ম্যানুয়াল জেলা চালু হয়েছে: ${district.nameBn}",
+                        "Manual district enabled: ${district.nameEn}"
+                    )
+                )
+            }
+        }
+    }
+
+    fun refreshForTimezoneChange(onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        tzRefreshTick.value = System.currentTimeMillis()
+        viewModelScope.launch {
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
         }
     }
 
@@ -290,7 +396,14 @@ class NoorViewModel(
             val latest = repository.settingsFlow.first()
             onAlarmsNeedUpdate(latest)
             repository.syncPreferencesToCloud(currentUserId, latest)
-            showMessage("${district.nameBn} জেলার সময়সূচী নির্বাচিত হয়েছে")
+            val isEn = isEnglishLang(latest.languageCode)
+            showMessage(
+                tr(
+                    isEn,
+                    "${district.nameBn} জেলার সময়সূচী নির্বাচিত হয়েছে",
+                    "Prayer times updated for ${district.nameEn} District"
+                )
+            )
         }
     }
 
@@ -302,18 +415,25 @@ class NoorViewModel(
         onAlarmsNeedUpdate: (LocalAppSettings) -> Unit
     ) {
         viewModelScope.launch {
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
             val nearest = BangladeshiDistricts.findNearest(lat, lon)
             val displayLabel = when {
                 !resolvedPlaceLabel.isNullOrBlank() -> resolvedPlaceLabel
-                PrayerTimeCalculator.isInsideBangladesh(lat, lon) -> nearest.nameBn
-                else -> String.format("%.2f°, %.2f°", lat, lon)
+                PrayerTimeCalculator.isInsideBangladesh(lat, lon) -> nearest.displayName(isEn)
+                else -> String.format(Locale.US, "%.2f°, %.2f°", lat, lon)
             }
             repository.preferences.setGpsLocation(lat, lon, nearest.id, displayLabel)
             val latest = repository.settingsFlow.first()
             onAlarmsNeedUpdate(latest)
             repository.syncPreferencesToCloud(currentUserId, latest)
             if (showToast) {
-                showMessage("জিপিএস লোকেশন আপডেট হয়েছে: $displayLabel")
+                showMessage(
+                    tr(
+                        isEn,
+                        "জিপিএস লোকেশন আপডেট হয়েছে: $displayLabel",
+                        "GPS location updated: $displayLabel"
+                    )
+                )
             }
         }
     }
@@ -332,7 +452,14 @@ class NoorViewModel(
             repository.preferences.setCalculationMethod(method)
             val latest = repository.settingsFlow.first()
             onAlarmsNeedUpdate(latest)
-            showMessage("হিসাব পদ্ধতি: ${method.titleBn}")
+            val isEn = isEnglishLang(latest.languageCode)
+            showMessage(
+                tr(
+                    isEn,
+                    "হিসাব পদ্ধতি: ${method.titleBn}",
+                    "Calculation method: ${method.titleEn}"
+                )
+            )
         }
     }
 
@@ -376,6 +503,55 @@ class NoorViewModel(
         }
     }
 
+    fun setWaqtEnabled(waqt: WaqtType, enabled: Boolean, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        viewModelScope.launch {
+            repository.preferences.setWaqtEnabled(waqt, enabled)
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
+            val isEn = isEnglishLang(latest.languageCode)
+            showMessage(
+                if (enabled) tr(isEn, "${waqt.titleBn} নোটিফিকেশন চালু হয়েছে", "${waqt.titleEn} notification enabled")
+                else tr(isEn, "${waqt.titleBn} নোটিফিকেশন বন্ধ করা হয়েছে", "${waqt.titleEn} notification turned off")
+            )
+        }
+    }
+
+    fun setWaqtAdhanVoice(waqt: WaqtType, voice: AdhanVoice, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        viewModelScope.launch {
+            repository.preferences.setWaqtAdhanVoice(waqt, voice)
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
+            val isEn = isEnglishLang(latest.languageCode)
+            showMessage(
+                tr(
+                    isEn,
+                    "${waqt.titleBn}: ${voice.titleBn}",
+                    "${waqt.titleEn}: ${voice.titleEn}"
+                )
+            )
+        }
+    }
+
+    fun setWaqtReminderMinutes(waqt: WaqtType, minutes: Int, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
+        viewModelScope.launch {
+            repository.preferences.setWaqtReminderMinutes(waqt, minutes)
+            val latest = repository.settingsFlow.first()
+            onAlarmsNeedUpdate(latest)
+            val isEn = isEnglishLang(latest.languageCode)
+            showMessage(
+                if (minutes == 0) {
+                    tr(isEn, "${waqt.titleBn} পূর্ব-সতর্কতা বন্ধ করা হয়েছে", "${waqt.titleEn} pre-reminder turned off")
+                } else {
+                    tr(
+                        isEn,
+                        "${waqt.titleBn}: ${BanglaUtils.toBanglaNumber(minutes)} মিনিট আগে রিমাইন্ডার",
+                        "${waqt.titleEn}: Remind $minutes min before"
+                    )
+                }
+            )
+        }
+    }
+
     fun setPrePrayerMinutes(minutes: Int, onAlarmsNeedUpdate: (LocalAppSettings) -> Unit) {
         viewModelScope.launch {
             repository.preferences.setPrePrayerMinutes(minutes)
@@ -387,10 +563,17 @@ class NoorViewModel(
 
     fun toggleBookmark(surah: Surah, ayahNumber: Int, arabicText: String, banglaText: String) {
         viewModelScope.launch {
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
             val bId = "${surah.number}_$ayahNumber"
             val exists = _uiState.value.bookmarks.any { it.bookmarkId == bId }
             repository.toggleBookmark(currentUserId, surah, ayahNumber, arabicText, banglaText, exists)
-            showMessage(if (exists) "বুকমার্ক সরানো হয়েছে" else "আয়াত বুকমার্ক করা হয়েছে")
+            showMessage(
+                if (exists) {
+                    tr(isEn, "বুকমার্ক সরানো হয়েছে", "Bookmark removed")
+                } else {
+                    tr(isEn, "আয়াত বুকমার্ক করা হয়েছে", "Ayah bookmarked")
+                }
+            )
         }
     }
 
@@ -398,32 +581,11 @@ class NoorViewModel(
         _uiState.update { it.copy(globalSearchQuery = query) }
         viewModelScope.launch {
             if (query.isBlank()) {
-                _uiState.update { it.copy(quranSearchResults = emptyList(), logSearchResults = emptyList()) }
+                _uiState.update { it.copy(quranSearchResults = emptyList()) }
             } else {
                 val quranHits = repository.searchQuran(query)
-                val logHits = repository.searchPrayerLogs(currentUserId, query)
-                _uiState.update { it.copy(quranSearchResults = quranHits, logSearchResults = logHits) }
+                _uiState.update { it.copy(quranSearchResults = quranHits) }
             }
-        }
-    }
-
-    fun selectTrackerDate(dateKey: String) {
-        _uiState.update { it.copy(selectedTrackerDateKey = dateKey) }
-    }
-
-    fun updatePrayerStatus(dateKey: String, waqt: WaqtType, status: PrayerStatus) {
-        viewModelScope.launch {
-            val result = repository.updatePrayerStatus(currentUserId, dateKey, waqt, status)
-            if (result.isFailure) {
-                _uiState.update { it.copy(cloudSyncError = "লোকাল স্টোরেজে সংরক্ষিত; ক্লাউডে সিঙ্ক বাকি রয়েছে") }
-            }
-        }
-    }
-
-    fun updatePrayerNote(dateKey: String, note: String) {
-        viewModelScope.launch {
-            repository.updatePrayerNote(currentUserId, dateKey, note)
-            showMessage("নোট সংরক্ষিত হয়েছে")
         }
     }
 
@@ -485,6 +647,167 @@ class NoorViewModel(
         return BanglaDhikrCatalog.ALL.find { it.id == id } ?: BanglaDhikrCatalog.ALL.first()
     }
 
+    fun setHijriDayOffset(offset: Int) {
+        viewModelScope.launch {
+            val clamped = offset.coerceIn(-1, 1)
+            repository.preferences.setHijriDayOffset(clamped)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            val label = when (clamped) {
+                -1 -> tr(isEn, "-১ দিন", "-1 day")
+                1 -> tr(isEn, "+১ দিন", "+1 day")
+                else -> tr(isEn, "০ দিন (স্বয়ংক্রিয়)", "0 days (Auto)")
+            }
+            showMessage(
+                tr(
+                    isEn,
+                    "হিজরি তারিখ সমন্বয়: $label",
+                    "Hijri date adjustment: $label"
+                )
+            )
+        }
+    }
+
+    fun toggleFavoriteDua(duaId: String) {
+        viewModelScope.launch {
+            val added = repository.preferences.toggleFavoriteDua(duaId)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                if (added) tr(isEn, "দোয়া বুকমার্ক করা হয়েছে", "Dua saved to favorites")
+                else tr(isEn, "দোয়া বুকমার্ক থেকে সরানো হয়েছে", "Dua removed from favorites")
+            )
+        }
+    }
+
+    fun setRamadanMode(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.preferences.setRamadanMode(enabled)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                if (enabled) tr(isEn, "রমজান মোড চালু হয়েছে — হোমে সাহরি ও ইফতার দেখাবে", "Ramadan mode enabled — Home highlights Sehri & Iftar")
+                else tr(isEn, "রমজান মোড বন্ধ করা হয়েছে", "Ramadan mode turned off")
+            )
+        }
+    }
+
+    fun setMetalPrices(goldPerGramBdt: Double, silverPerGramBdt: Double) {
+        viewModelScope.launch {
+            repository.preferences.setMetalPrices(goldPerGramBdt, silverPerGramBdt)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                tr(isEn, "স্বর্ণ ও রূপার বাজারদর সংরক্ষিত হয়েছে", "Gold & silver rates saved")
+            )
+        }
+    }
+
+    fun saveZakatCalculation(record: ZakatHistoryRecord) {
+        viewModelScope.launch {
+            repository.preferences.addZakatHistoryRecord(record)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                tr(isEn, "যাকাত হিসাব ইতিহাসে সংরক্ষিত হয়েছে", "Zakat calculation saved to history")
+            )
+        }
+    }
+
+    fun deleteZakatCalculation(recordId: String) {
+        viewModelScope.launch {
+            repository.preferences.deleteZakatHistoryRecord(recordId)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                tr(isEn, "যাকাত হিসাব মুছে ফেলা হয়েছে", "Zakat history item deleted")
+            )
+        }
+    }
+
+    fun setQuranReciter(reciter: QuranReciter) {
+        viewModelScope.launch {
+            repository.preferences.setQuranReciter(reciter.id)
+            quranAudioController.setReciter(reciter)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                tr(
+                    isEn,
+                    "ক্বারী নির্বাচিত: ${reciter.nameBn}",
+                    "Reciter selected: ${reciter.nameEn}"
+                )
+            )
+        }
+    }
+
+    fun setDailyQuranGoal(goalAyahs: Int) {
+        viewModelScope.launch {
+            repository.preferences.setDailyQuranGoal(goalAyahs)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(
+                tr(
+                    isEn,
+                    "দৈনিক কুরআন লক্ষ্য: ${BanglaUtils.toBanglaNumber(goalAyahs)} আয়াত",
+                    "Daily Quran goal set to $goalAyahs Ayahs"
+                )
+            )
+        }
+    }
+
+    fun playSurahAudio(surah: Surah) {
+        val reciter = QuranReciter.fromId(_uiState.value.settings.quranReciterId)
+        quranAudioController.playSurah(surah, reciter)
+    }
+
+    fun playAyahAudio(surah: Surah, ayahNumber: Int) {
+        val reciter = QuranReciter.fromId(_uiState.value.settings.quranReciterId)
+        quranAudioController.playAyah(surah, ayahNumber, reciter)
+    }
+
+    fun toggleQuranAudioPlayPause() {
+        quranAudioController.togglePlayPause()
+    }
+
+    fun nextQuranAudioAyah() {
+        quranAudioController.nextAyah()
+    }
+
+    fun previousQuranAudioAyah() {
+        quranAudioController.previousAyah()
+    }
+
+    fun stopQuranAudio() {
+        quranAudioController.stop()
+    }
+
+    private fun recordQuranAyahHeard(surahNumber: Int, ayahNumber: Int) {
+        viewModelScope.launch {
+            val tz = TimeZone.getTimeZone(_uiState.value.activeTimeZoneId)
+            val todayKey = DailyInspirationCatalog.dateKeyFor(Calendar.getInstance(tz))
+            repository.preferences.recordQuranAyahProgress(todayKey, surahNumber, ayahNumber)
+        }
+    }
+
+    fun toggleAyahReadToday(surahNumber: Int, ayahNumber: Int) {
+        viewModelScope.launch {
+            val tz = TimeZone.getTimeZone(_uiState.value.activeTimeZoneId)
+            val todayKey = DailyInspirationCatalog.dateKeyFor(Calendar.getInstance(tz))
+            val marked = repository.preferences.toggleQuranAyahRead(todayKey, surahNumber, ayahNumber)
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            if (marked) {
+                showMessage(tr(isEn, "আজকের পাঠে যুক্ত হয়েছে", "Added to today's Quran goal"))
+            }
+        }
+    }
+
+    fun toggleHajjStepCompleted(stepId: String) {
+        viewModelScope.launch {
+            repository.preferences.toggleHajjStepCompleted(stepId)
+        }
+    }
+
+    fun resetHajjChecklist() {
+        viewModelScope.launch {
+            repository.preferences.resetHajjChecklist()
+            val isEn = isEnglishLang(_uiState.value.settings.languageCode)
+            showMessage(tr(isEn, "হজ্জ ও উমরাহ চেকলিস্ট রিসেট করা হয়েছে", "Hajj & Umrah checklist reset"))
+        }
+    }
+
     fun showMessage(msg: String) {
         _uiState.update { it.copy(statusMessage = msg) }
     }
@@ -493,48 +816,9 @@ class NoorViewModel(
         _uiState.update { it.copy(statusMessage = null) }
     }
 
-    private fun computeStats(logs: List<PrayerLogEntity>): Triple<Int, Int, List<DailyPrayerSummary>> {
-        val byDate = logs.associateBy { it.dateKey }
-        var totalOnTime = 0
-        for (log in logs) {
-            WaqtType.entries.forEach { w ->
-                if (log.statusFor(w) == PrayerStatus.ON_TIME) totalOnTime++
-            }
-        }
-
-        var streak = 0
-        val cal = Calendar.getInstance()
-        for (offset in 0..365) {
-            val checkCal = (cal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -offset) }
-            val key = BanglaUtils.getDateKey(checkCal)
-            val log = byDate[key]
-            val completedCount = if (log == null) 0 else {
-                WaqtType.entries.count { log.statusFor(it) == PrayerStatus.ON_TIME || log.statusFor(it) == PrayerStatus.LATE }
-            }
-            if (completedCount >= 5) {
-                streak++
-            } else if (offset > 0) {
-                break
-            }
-        }
-
-        val last7 = (6 downTo 0).map { offset ->
-            val dayCal = (cal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -offset) }
-            val key = BanglaUtils.getDateKey(dayCal)
-            val log = byDate[key]
-            if (log == null) {
-                DailyPrayerSummary(key, 0, 0, 0)
-            } else {
-                DailyPrayerSummary(
-                    dateKey = key,
-                    onTimeCount = WaqtType.entries.count { log.statusFor(it) == PrayerStatus.ON_TIME },
-                    lateCount = WaqtType.entries.count { log.statusFor(it) == PrayerStatus.LATE },
-                    qazaCount = WaqtType.entries.count { log.statusFor(it) == PrayerStatus.QAZA }
-                )
-            }
-        }
-
-        return Triple(streak, totalOnTime, last7)
+    override fun onCleared() {
+        quranAudioController.release()
+        super.onCleared()
     }
 
     companion object {

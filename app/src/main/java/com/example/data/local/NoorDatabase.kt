@@ -10,42 +10,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.example.data.model.PrayerStatus
-import com.example.data.model.WaqtType
 import kotlinx.coroutines.flow.Flow
-
-@Entity(tableName = "prayer_logs")
-data class PrayerLogEntity(
-    @PrimaryKey val dateKey: String,
-    val userId: String,
-    val fajrStatus: String = PrayerStatus.NONE.name,
-    val dhuhrStatus: String = PrayerStatus.NONE.name,
-    val asrStatus: String = PrayerStatus.NONE.name,
-    val maghribStatus: String = PrayerStatus.NONE.name,
-    val ishaStatus: String = PrayerStatus.NONE.name,
-    val note: String = "",
-    val updatedAtMillis: Long = System.currentTimeMillis(),
-    val syncedToCloud: Boolean = false
-) {
-    fun statusFor(waqt: WaqtType): PrayerStatus {
-        val raw = when (waqt) {
-            WaqtType.FAJR -> fajrStatus
-            WaqtType.DHUHR -> dhuhrStatus
-            WaqtType.ASR -> asrStatus
-            WaqtType.MAGHRIB -> maghribStatus
-            WaqtType.ISHA -> ishaStatus
-        }
-        return PrayerStatus.safeValueOf(raw)
-    }
-
-    fun withStatus(waqt: WaqtType, status: PrayerStatus): PrayerLogEntity = when (waqt) {
-        WaqtType.FAJR -> copy(fajrStatus = status.name)
-        WaqtType.DHUHR -> copy(dhuhrStatus = status.name)
-        WaqtType.ASR -> copy(asrStatus = status.name)
-        WaqtType.MAGHRIB -> copy(maghribStatus = status.name)
-        WaqtType.ISHA -> copy(ishaStatus = status.name)
-    }
-}
 
 @Entity(tableName = "quran_bookmarks")
 data class QuranBookmarkEntity(
@@ -60,27 +25,15 @@ data class QuranBookmarkEntity(
 )
 
 @Dao
-interface PrayerLogDao {
-    @Query("SELECT * FROM prayer_logs WHERE userId = :userId ORDER BY dateKey DESC")
-    fun observeAllForUser(userId: String): Flow<List<PrayerLogEntity>>
-
-    @Query("SELECT * FROM prayer_logs WHERE userId = :userId AND dateKey = :dateKey LIMIT 1")
-    suspend fun getByDate(userId: String, dateKey: String): PrayerLogEntity?
-
-    @Query("SELECT * FROM prayer_logs WHERE userId = :userId AND (note LIKE '%' || :query || '%' OR dateKey LIKE '%' || :query || '%') ORDER BY dateKey DESC")
-    suspend fun searchLogs(userId: String, query: String): List<PrayerLogEntity>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: PrayerLogEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAll(entities: List<PrayerLogEntity>)
-}
-
-@Dao
 interface QuranBookmarkDao {
     @Query("SELECT * FROM quran_bookmarks WHERE userId = :userId ORDER BY createdAtMillis DESC")
     fun observeAllForUser(userId: String): Flow<List<QuranBookmarkEntity>>
+
+    @Query("SELECT * FROM quran_bookmarks WHERE userId = :userId ORDER BY createdAtMillis DESC")
+    suspend fun getAllForUserOnce(userId: String): List<QuranBookmarkEntity>
+
+    @Query("UPDATE quran_bookmarks SET userId = :targetUserId WHERE userId = :sourceUserId")
+    suspend fun migrateUserBookmarks(sourceUserId: String, targetUserId: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: QuranBookmarkEntity)
@@ -93,12 +46,11 @@ interface QuranBookmarkDao {
 }
 
 @Database(
-    entities = [PrayerLogEntity::class, QuranBookmarkEntity::class],
-    version = 1,
+    entities = [QuranBookmarkEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class NoorDatabase : RoomDatabase() {
-    abstract fun prayerLogDao(): PrayerLogDao
     abstract fun quranBookmarkDao(): QuranBookmarkDao
 
     companion object {
@@ -111,7 +63,10 @@ abstract class NoorDatabase : RoomDatabase() {
                     context.applicationContext,
                     NoorDatabase::class.java,
                     "noor_bangla_db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration(true)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

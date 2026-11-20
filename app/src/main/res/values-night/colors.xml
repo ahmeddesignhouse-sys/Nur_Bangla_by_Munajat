@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home Screen Widget (Dark Mode) -->
+    <color name="widget_bg">#FF111B17</color>
+    <color name="widget_border">#FF263B32</color>
+    <color name="widget_card_bg">#FF1A2A24</color>
+    <color name="widget_badge_bg">#FF1E6E52</color>
+    <color name="widget_badge_text">#FFECFDF5</color>
+    <color name="widget_accent">#FF6EE7B7</color>
+    <color name="widget_accent_secondary">#FFF5C662</color>
+    <color name="widget_text_primary">#FFECF5F0</color>
+    <color name="widget_text_secondary">#FFA0B8AD</color>
+</resources>

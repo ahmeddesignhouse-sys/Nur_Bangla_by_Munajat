@@ -1,0 +1,226 @@
+{
+  "surahs": [
+    {
+      "number": 1,
+      "nameEnglish": "Al-Fatihah (The Opening)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "In the name of Allah, the Entirely Merciful, the Especially Merciful." },
+        { "number": 2, "english": "All praise is due to Allah, Lord of the worlds." },
+        { "number": 3, "english": "The Entirely Merciful, the Especially Merciful." },
+        { "number": 4, "english": "Sovereign of the Day of Recompense." },
+        { "number": 5, "english": "It is You we worship and You we ask for help." },
+        { "number": 6, "english": "Guide us to the straight path." },
+        { "number": 7, "english": "The path of those upon whom You have bestowed favor, not of those who have evoked anger or of those who are astray." }
+      ]
+    },
+    {
+      "number": 2,
+      "nameEnglish": "Al-Baqarah (Ayat al-Kursi)",
+      "revelationTypeEn": "Medinan",
+      "ayahs": [
+        { "number": 255, "english": "Allah — there is no deity except Him, the Ever-Living, the Sustainer of all existence. Neither drowsiness overtakes Him nor sleep. To Him belongs whatever is in the heavens and whatever is on the earth. Who is it that can intercede with Him except by His permission? He knows what is before them and what will be after them, and they encompass not a thing of His knowledge except for what He wills. His Kursi extends over the heavens and the earth, and their preservation tires Him not. And He is the Most High, the Most Great." }
+      ]
+    },
+    {
+      "number": 67,
+      "nameEnglish": "Al-Mulk (The Sovereignty)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Blessed is He in whose hand is dominion, and He is over all things competent." },
+        { "number": 2, "english": "He who created death and life to test you as to which of you is best in deed — and He is the Exalted in Might, the Forgiving." },
+        { "number": 3, "english": "And who created seven heavens in layers. You do not see in the creation of the Most Merciful any inconsistency." },
+        { "number": 4, "english": "Then return your vision twice again; your vision will return to you humbled while it is fatigued." },
+        { "number": 5, "english": "And We have certainly beautified the nearest heaven with lamps." }
+      ]
+    },
+    {
+      "number": 93,
+      "nameEnglish": "Ad-Duha (The Morning Hours)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "By the morning brightness," },
+        { "number": 2, "english": "And by the night when it covers with darkness," },
+        { "number": 3, "english": "Your Lord has not taken leave of you, nor has He detested you." },
+        { "number": 4, "english": "And the Hereafter is better for you than the first life." },
+        { "number": 5, "english": "And your Lord is going to give you, and you will be satisfied." },
+        { "number": 6, "english": "Did He not find you an orphan and give you refuge?" },
+        { "number": 7, "english": "And He found you lost and guided you," },
+        { "number": 8, "english": "And He found you poor and made you self-sufficient." },
+        { "number": 9, "english": "So as for the orphan, do not oppress him." },
+        { "number": 10, "english": "And as for the petitioner, do not repel him." },
+        { "number": 11, "english": "But as for the favor of your Lord, report it." }
+      ]
+    },
+    {
+      "number": 94,
+      "nameEnglish": "Ash-Sharh (The Relief)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Did We not expand for you your breast," },
+        { "number": 2, "english": "And We removed from you your burden" },
+        { "number": 3, "english": "Which had weighed upon your back," },
+        { "number": 4, "english": "And raised high for you your repute?" },
+        { "number": 5, "english": "For indeed, with hardship will be ease." },
+        { "number": 6, "english": "Indeed, with hardship will be ease." },
+        { "number": 7, "english": "So when you have finished your duties, then stand up for worship." },
+        { "number": 8, "english": "And to your Lord direct your longing." }
+      ]
+    },
+    {
+      "number": 95,
+      "nameEnglish": "At-Tin (The Fig)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "By the fig and the olive," },
+        { "number": 2, "english": "And by Mount Sinai," },
+        { "number": 3, "english": "And by this secure city (Makkah)," },
+        { "number": 4, "english": "We have certainly created man in the best of stature." },
+        { "number": 5, "english": "Then We return him to the lowest of the low," },
+        { "number": 6, "english": "Except for those who believe and do righteous deeds, for they will have a reward uninterrupted." },
+        { "number": 7, "english": "So what yet causes you to deny the Recompense?" },
+        { "number": 8, "english": "Is not Allah the most just of judges?" }
+      ]
+    },
+    {
+      "number": 97,
+      "nameEnglish": "Al-Qadr (The Power)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Indeed, We sent the Quran down during the Night of Decree." },
+        { "number": 2, "english": "And what can make you know what is the Night of Decree?" },
+        { "number": 3, "english": "The Night of Decree is better than a thousand months." },
+        { "number": 4, "english": "The angels and the Spirit (Jibril) descend therein by permission of their Lord for every matter." },
+        { "number": 5, "english": "Peace it is until the emergence of dawn." }
+      ]
+    },
+    {
+      "number": 103,
+      "nameEnglish": "Al-Asr (The Declining Day)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "By time," },
+        { "number": 2, "english": "Indeed, mankind is in loss," },
+        { "number": 3, "english": "Except for those who have believed and done righteous deeds and advised each other to truth and advised each other to patience." }
+      ]
+    },
+    {
+      "number": 105,
+      "nameEnglish": "Al-Fil (The Elephant)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Have you not considered how your Lord dealt with the companions of the elephant?" },
+        { "number": 2, "english": "Did He not make their plan into misguidance?" },
+        { "number": 3, "english": "And He sent against them birds in flocks," },
+        { "number": 4, "english": "Striking them with stones of hard clay," },
+        { "number": 5, "english": "And He made them like eaten straw." }
+      ]
+    },
+    {
+      "number": 106,
+      "nameEnglish": "Quraysh",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "For the accustomed security of the Quraysh —" },
+        { "number": 2, "english": "Their accustomed security in the caravan of winter and summer —" },
+        { "number": 3, "english": "Let them worship the Lord of this House (the Kaaba)," },
+        { "number": 4, "english": "Who has fed them, saving them from hunger and made them safe, saving them from fear." }
+      ]
+    },
+    {
+      "number": 107,
+      "nameEnglish": "Al-Ma'un (Small Kindnesses)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Have you seen the one who denies the Recompense?" },
+        { "number": 2, "english": "For that is the one who drives away the orphan," },
+        { "number": 3, "english": "And does not encourage the feeding of the poor." },
+        { "number": 4, "english": "So woe to those who pray" },
+        { "number": 5, "english": "Who are heedless of their prayer," },
+        { "number": 6, "english": "Those who make show of their deeds," },
+        { "number": 7, "english": "And withhold simple assistance." }
+      ]
+    },
+    {
+      "number": 108,
+      "nameEnglish": "Al-Kawthar (Abundance)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Indeed, We have granted you Al-Kawthar (abundance)." },
+        { "number": 2, "english": "So pray to your Lord and sacrifice to Him alone." },
+        { "number": 3, "english": "Indeed, your enemy is the one cut off." }
+      ]
+    },
+    {
+      "number": 109,
+      "nameEnglish": "Al-Kafirun (The Disbelievers)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Say, O disbelievers," },
+        { "number": 2, "english": "I do not worship what you worship." },
+        { "number": 3, "english": "Nor are you worshippers of what I worship." },
+        { "number": 4, "english": "Nor will I be a worshipper of what you worship." },
+        { "number": 5, "english": "Nor will you be worshippers of what I worship." },
+        { "number": 6, "english": "For you is your religion, and for me is my religion." }
+      ]
+    },
+    {
+      "number": 110,
+      "nameEnglish": "An-Nasr (The Divine Support)",
+      "revelationTypeEn": "Medinan",
+      "ayahs": [
+        { "number": 1, "english": "When the victory of Allah has come and the conquest," },
+        { "number": 2, "english": "And you see the people entering into the religion of Allah in multitudes," },
+        { "number": 3, "english": "Then exalt Him with praise of your Lord and ask forgiveness of Him. Indeed, He is ever Accepting of repentance." }
+      ]
+    },
+    {
+      "number": 111,
+      "nameEnglish": "Al-Masad (The Palm Fiber)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "May the hands of Abu Lahab be ruined, and ruined is he." },
+        { "number": 2, "english": "His wealth will not avail him or that which he gained." },
+        { "number": 3, "english": "He will enter to burn in a Fire of blazing flame," },
+        { "number": 4, "english": "And his wife as well — the carrier of firewood." },
+        { "number": 5, "english": "Around her neck is a rope of twisted fiber." }
+      ]
+    },
+    {
+      "number": 112,
+      "nameEnglish": "Al-Ikhlas (The Sincerity)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Say, He is Allah, Who is One." },
+        { "number": 2, "english": "Allah, the Eternal Refuge." },
+        { "number": 3, "english": "He neither begets nor is born," },
+        { "number": 4, "english": "Nor is there to Him any equivalent." }
+      ]
+    },
+    {
+      "number": 113,
+      "nameEnglish": "Al-Falaq (The Daybreak)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Say, I seek refuge in the Lord of daybreak," },
+        { "number": 2, "english": "From the evil of that which He created," },
+        { "number": 3, "english": "And from the evil of darkness when it settles," },
+        { "number": 4, "english": "And from the evil of the blowers in knots," },
+        { "number": 5, "english": "And from the evil of an envier when he envies." }
+      ]
+    },
+    {
+      "number": 114,
+      "nameEnglish": "An-Nas (Mankind)",
+      "revelationTypeEn": "Meccan",
+      "ayahs": [
+        { "number": 1, "english": "Say, I seek refuge in the Lord of mankind," },
+        { "number": 2, "english": "The Sovereign of mankind," },
+        { "number": 3, "english": "The God of mankind," },
+        { "number": 4, "english": "From the evil of the retreating whisperer," },
+        { "number": 5, "english": "Who whispers into the breasts of mankind," },
+        { "number": 6, "english": "From among the jinn and mankind." }
+      ]
+    }
+  ]
+}

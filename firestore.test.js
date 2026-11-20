@@ -40,118 +40,27 @@ beforeEach(async () => {
   }
 });
 
-test("Unauthenticated user cannot read or write any collection", async () => {
+test("Unauthenticated user cannot read or write bookmarks or preferences", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(
+    unauthDb.collection("users").doc(ALICE_UID).collection("bookmarks").get()
+  );
+  await assertFails(
+    unauthDb.collection("users").doc(ALICE_UID).collection("preferences").get()
+  );
   await assertFails(
     unauthDb.collection("users").doc(ALICE_UID).collection("prayer_logs").get()
   );
-  await assertFails(
-    unauthDb
-      .collection("users")
-      .doc(ALICE_UID)
-      .collection("prayer_logs")
-      .doc("2026-11-18")
-      .set({
-        userId: ALICE_UID,
-        dateKey: "2026-11-18",
-        fajrStatus: "ON_TIME",
-        dhuhrStatus: "ON_TIME",
-        asrStatus: "NONE",
-        maghribStatus: "NONE",
-        ishaStatus: "NONE",
-        note: "",
-        createdAt: new Date(Date.now() - 1000),
-        updatedAt: new Date(Date.now() - 1000),
-      })
-  );
 });
 
-test("Owner can create, update, list, and delete prayer_logs; invalid payloads fail", async () => {
+test("Removed prayer_logs collection is denied even for authenticated owner", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
-  const created = new Date(Date.now() - 10000);
-  const logRef = aliceDb
-    .collection("users")
-    .doc(ALICE_UID)
-    .collection("prayer_logs")
-    .doc("2026-11-18");
-
-  await assertSucceeds(
-    logRef.set({
-      userId: ALICE_UID,
-      dateKey: "2026-11-18",
-      fajrStatus: "ON_TIME",
-      dhuhrStatus: "LATE",
-      asrStatus: "NONE",
-      maghribStatus: "NONE",
-      ishaStatus: "NONE",
-      note: "আলহামদুলিল্লাহ",
-      createdAt: created,
-      updatedAt: created,
-    })
-  );
-
-  await assertSucceeds(
+  await assertFails(
     aliceDb.collection("users").doc(ALICE_UID).collection("prayer_logs").get()
   );
-
-  await assertSucceeds(
-    logRef.update({
-      asrStatus: "ON_TIME",
-      note: "জামাতে আদায়",
-      updatedAt: new Date(Date.now() - 1000),
-    })
-  );
-
-  // Ghost field rejected
-  await assertFails(
-    aliceDb
-      .collection("users")
-      .doc(ALICE_UID)
-      .collection("prayer_logs")
-      .doc("2026-11-19")
-      .set({
-        id: "2026-11-19",
-        userId: ALICE_UID,
-        dateKey: "2026-11-19",
-        fajrStatus: "ON_TIME",
-        dhuhrStatus: "NONE",
-        asrStatus: "NONE",
-        maghribStatus: "NONE",
-        ishaStatus: "NONE",
-        note: "",
-        createdAt: created,
-        updatedAt: created,
-      })
-  );
-
-  // Invalid status rejected
-  await assertFails(
-    logRef.update({
-      fajrStatus: "INVALID_STATUS",
-      updatedAt: new Date(Date.now() - 500),
-    })
-  );
-
-  // Immutable createdAt mutation rejected
-  await assertFails(
-    logRef.update({
-      createdAt: new Date(Date.now() - 500),
-      updatedAt: new Date(Date.now() - 500),
-    })
-  );
-
-  // Future timestamp rejected
-  await assertFails(
-    logRef.update({
-      fajrStatus: "QAZA",
-      updatedAt: new Date(Date.now() + 60000),
-    })
-  );
-
-  await assertSucceeds(logRef.delete());
 });
 
-test("Cross-user access to prayer_logs, bookmarks, and preferences is denied", async () => {
+test("Cross-user access to bookmarks and preferences is denied", async () => {
   await testEnv.withSecurityRulesDisabled(async (ctx) => {
     const now = new Date(Date.now() - 5000);
     await ctx
@@ -186,7 +95,7 @@ test("Cross-user access to prayer_logs, bookmarks, and preferences is denied", a
   );
 });
 
-test("Owner can manage bookmarks and user preferences", async () => {
+test("Owner can manage bookmarks and user preferences including languageCode", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const now = new Date(Date.now() - 5000);
 
@@ -224,6 +133,7 @@ test("Owner can manage bookmarks and user preferences", async () => {
       quranDarkMode: true,
       quranFontSize: 20,
       prePrayerMinutes: 15,
+      languageCode: "bn",
       createdAt: now,
       updatedAt: now,
     })
@@ -231,9 +141,26 @@ test("Owner can manage bookmarks and user preferences", async () => {
 
   await assertSucceeds(
     prefRef.update({
+      languageCode: "en",
       accentTheme: "MEDINA_TEAL",
       prePrayerMinutes: 10,
       updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // Invalid languageCode rejected
+  await assertFails(
+    prefRef.update({
+      languageCode: "fr",
+      updatedAt: new Date(Date.now() - 500),
+    })
+  );
+
+  // Ghost field rejected
+  await assertFails(
+    prefRef.update({
+      unknownField: true,
+      updatedAt: new Date(Date.now() - 500),
     })
   );
 });

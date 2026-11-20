@@ -3,34 +3,33 @@ package com.example.data.model
 enum class WaqtType(
     val key: String,
     val titleBn: String,
-    val rakatInfoBn: String
+    val titleEn: String,
+    val rakatInfoBn: String,
+    val rakatInfoEn: String
 ) {
-    FAJR("fajr", "ফজর", "২ সুন্নত, ২ ফরয"),
-    DHUHR("dhuhr", "যোহর", "৪ সুন্নত, ৪ ফরয, ২ সুন্নত, ২ নফল"),
-    ASR("asr", "আসর", "৪ সুন্নত (গাইরে মুয়াক্কাদাহ), ৪ ফরয"),
-    MAGHRIB("maghrib", "মাগরিব", "৩ ফরয, ২ সুন্নত, ২ নফল"),
-    ISHA("isha", "এশা", "৪ ফরয, ২ সুন্নত, ২ নফল, ৩ বিতর");
+    FAJR("fajr", "ফজর", "Fajr", "২ সুন্নত, ২ ফরয", "2 Sunnah, 2 Fard"),
+    DHUHR("dhuhr", "যোহর", "Dhuhr", "৪ সুন্নত, ৪ ফরয, ২ সুন্নত, ২ নফল", "4 Sunnah, 4 Fard, 2 Sunnah, 2 Nafl"),
+    ASR("asr", "আসর", "Asr", "৪ সুন্নত (গাইরে মুয়াক্কাদাহ), ৪ ফরয", "4 Sunnah (Ghair Mu'akkadah), 4 Fard"),
+    MAGHRIB("maghrib", "মাগরিব", "Maghrib", "৩ ফরয, ২ সুন্নত, ২ নফল", "3 Fard, 2 Sunnah, 2 Nafl"),
+    ISHA("isha", "এশা", "Isha", "৪ ফরয, ২ সুন্নত, ২ নফল, ৩ বিতর", "4 Fard, 2 Sunnah, 2 Nafl, 3 Witr");
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
+    fun rakatInfo(isEnglish: Boolean): String = if (isEnglish) rakatInfoEn else rakatInfoBn
 
     companion object {
         fun fromKey(key: String): WaqtType = entries.firstOrNull { it.key == key } ?: FAJR
     }
 }
 
-enum class PrayerStatus(val titleBn: String) {
-    NONE("অচিহ্নিত"),
-    ON_TIME("সময়মতো"),
-    LATE("বিলম্বে"),
-    QAZA("কাজা");
+enum class AsrMethod(val titleBn: String, val titleEn: String, val shadowFactor: Int) {
+    HANAFI("হানাফি (বাংলাদেশ প্রচলিত)", "Hanafi (Standard in BD)", 2),
+    SHAFI("শাফেয়ী / জমহুর", "Shafi'i / Standard", 1);
 
-    companion object {
-        fun safeValueOf(raw: String): PrayerStatus =
-            entries.firstOrNull { it.name == raw } ?: NONE
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
+    fun shortTitle(isEnglish: Boolean): String = when (this) {
+        HANAFI -> if (isEnglish) "Hanafi" else "হানাফি"
+        SHAFI -> if (isEnglish) "Shafi'i" else "শাফেয়ী"
     }
-}
-
-enum class AsrMethod(val titleBn: String, val shadowFactor: Int) {
-    HANAFI("হানাফি (বাংলাদেশ প্রচলিত)", 2),
-    SHAFI("শাফেয়ী / জমহুর", 1);
 
     companion object {
         fun safeValueOf(raw: String): AsrMethod =
@@ -40,16 +39,19 @@ enum class AsrMethod(val titleBn: String, val shadowFactor: Int) {
 
 enum class CalculationMethod(
     val titleBn: String,
+    val titleEn: String,
     val fajrAngle: Double,
     val ishaAngle: Double,
     val ishaIntervalMinutes: Int? = null
 ) {
-    AUTO("অটো (দেশ ও জিপিএস অনুযায়ী)", 18.0, 18.0),
-    BANGLADESH_KARACHI("ইসলামিক ফাউন্ডেশন / করাচি", 18.0, 18.0),
-    MWL("মুসলিম ওয়ার্ল্ড লীগ (MWL)", 18.0, 17.0),
-    ISNA("উত্তর আমেরিকা (ISNA)", 15.0, 15.0),
-    UMM_AL_QURA("উম্মুল কুরা (মক্কা)", 18.5, 0.0, ishaIntervalMinutes = 90),
-    EGYPT("মিশরীয় জেনারেল অথরিটি", 19.5, 17.5);
+    AUTO("অটো (দেশ ও জিপিএস অনুযায়ী)", "Auto (By Country & GPS)", 18.0, 18.0),
+    BANGLADESH_KARACHI("ইসলামিক ফাউন্ডেশন / করাচি", "Islamic Foundation / Karachi", 18.0, 18.0),
+    MWL("মুসলিম ওয়ার্ল্ড লীগ (MWL)", "Muslim World League (MWL)", 18.0, 17.0),
+    ISNA("উত্তর আমেরিকা (ISNA)", "ISNA (North America)", 15.0, 15.0),
+    UMM_AL_QURA("উম্মুল কুরা (মক্কা)", "Umm al-Qura (Makkah)", 18.5, 0.0, ishaIntervalMinutes = 90),
+    EGYPT("মিশরীয় জেনারেল অথরিটি", "Egyptian General Authority", 19.5, 17.5);
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
 
     companion object {
         fun safeValueOf(raw: String): CalculationMethod =
@@ -57,11 +59,25 @@ enum class CalculationMethod(
     }
 }
 
-enum class AdhanAlertMode(val titleBn: String, val descriptionBn: String) {
-    FULL_ADHAN("পূর্ণ আযান", "নির্ধারিত সময়ে আযানের সুর বাজবে"),
-    BEEP("সংক্ষিপ্ত বিপ", "হালকা নোটিফিকেশন শব্দ বাজবে"),
-    VIBRATE("ভাইব্রেশন", "শব্দ ছাড়া শুধুমাত্র ভাইব্রেট হবে"),
-    SILENT("নীরব", "কোনো শব্দ বা ভাইব্রেশন হবে না");
+enum class AdhanAlertMode(
+    val titleBn: String,
+    val titleEn: String,
+    val descriptionBn: String,
+    val descriptionEn: String
+) {
+    FULL_ADHAN("পূর্ণ আযান", "Full Adhan", "নির্ধারিত সময়ে আযানের সুর বাজবে", "Plays full Adhan sound at prayer time"),
+    BEEP("সংক্ষিপ্ত বিপ", "Short Beep", "হালকা নোটিফিকেশন শব্দ বাজবে", "Plays a brief notification tone"),
+    VIBRATE("ভাইব্রেশন", "Vibrate", "শব্দ ছাড়া শুধুমাত্র ভাইব্রেট হবে", "Vibrates silently without audio"),
+    SILENT("নীরব", "Silent", "কোনো শব্দ বা ভাইব্রেশন হবে না", "No sound or vibration");
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
+    fun description(isEnglish: Boolean): String = if (isEnglish) descriptionEn else descriptionBn
+    fun shortTitle(isEnglish: Boolean): String = when (this) {
+        FULL_ADHAN -> if (isEnglish) "Adhan" else "আযান"
+        BEEP -> if (isEnglish) "Beep" else "বিপ"
+        VIBRATE -> if (isEnglish) "Vibrate" else "ভাইব্রেট"
+        SILENT -> if (isEnglish) "Silent" else "নীরব"
+    }
 
     companion object {
         fun safeValueOf(raw: String): AdhanAlertMode =
@@ -69,10 +85,12 @@ enum class AdhanAlertMode(val titleBn: String, val descriptionBn: String) {
     }
 }
 
-enum class ThemeMode(val titleBn: String) {
-    SYSTEM("সিস্টেম ডিফল্ট"),
-    LIGHT("লাইট মোড"),
-    DARK("ডার্ক মোড");
+enum class ThemeMode(val titleBn: String, val titleEn: String) {
+    SYSTEM("সিস্টেম ডিফল্ট", "System"),
+    LIGHT("লাইট মোড", "Light"),
+    DARK("ডার্ক মোড", "Dark");
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
 
     companion object {
         fun safeValueOf(raw: String): ThemeMode =
@@ -82,15 +100,18 @@ enum class ThemeMode(val titleBn: String) {
 
 enum class AccentTheme(
     val titleBn: String,
+    val titleEn: String,
     val primaryColorHex: Long,
     val secondaryColorHex: Long
 ) {
-    ISLAMIC_GREEN("ইসলামিক সবুজ", 0xFF0B6E4FL, 0xFF9A6B16L),
-    ROYAL_BLUE("রয়্যাল নীল", 0xFF1B4965L, 0xFFB07D20L),
-    GOLD("মক্কা সোনালি", 0xFF8C5E10L, 0xFF1F6B52L),
-    MEDINA_TEAL("মদীনা টিল", 0xFF0E6B74L, 0xFFB56E22L),
-    DESERT_ROSE("মরুর গোলাপ", 0xFF8E2B44L, 0xFF8C6A23L),
-    NIGHT_INDIGO("তাহাজ্জুদ বেগুনি", 0xFF543C88L, 0xFFB8862DL);
+    ISLAMIC_GREEN("ইসলামিক সবুজ", "Islamic Green", 0xFF0B6E4FL, 0xFF9A6B16L),
+    ROYAL_BLUE("রয়্যাল নীল", "Royal Blue", 0xFF1B4965L, 0xFFB07D20L),
+    GOLD("মক্কা সোনালি", "Makkah Gold", 0xFF8C5E10L, 0xFF1F6B52L),
+    MEDINA_TEAL("মদীনা টিল", "Madinah Teal", 0xFF0E6B74L, 0xFFB56E22L),
+    DESERT_ROSE("মরুর গোলাপ", "Desert Rose", 0xFF8E2B44L, 0xFF8C6A23L),
+    NIGHT_INDIGO("তাহাজ্জুদ বেগুনি", "Tahajjud Indigo", 0xFF543C88L, 0xFFB8862DL);
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
 
     companion object {
         fun safeValueOf(raw: String): AccentTheme =
@@ -100,9 +121,12 @@ enum class AccentTheme(
 
 data class ForbiddenTimeWindow(
     val labelBn: String,
+    val labelEn: String,
     val startMinute: Int,
     val endMinute: Int
-)
+) {
+    fun label(isEnglish: Boolean): String = if (isEnglish) labelEn else labelBn
+}
 
 data class DailyPrayerSchedule(
     val fajrMinute: Int,
@@ -116,9 +140,11 @@ data class DailyPrayerSchedule(
     val iftarMinute: Int,
     val forbiddenTimes: List<ForbiddenTimeWindow>,
     val timeZoneLabel: String = "GMT+6",
-    val appliedMethodTitleBn: String = CalculationMethod.BANGLADESH_KARACHI.titleBn,
+    val appliedMethod: CalculationMethod = CalculationMethod.BANGLADESH_KARACHI,
     val ishaEndMinute: Int = fajrMinute
 ) {
+    fun appliedMethodTitle(isEnglish: Boolean): String = appliedMethod.title(isEnglish)
+
     fun minuteFor(waqt: WaqtType): Int = when (waqt) {
         WaqtType.FAJR -> fajrMinute
         WaqtType.DHUHR -> dhuhrMinute
@@ -143,19 +169,110 @@ data class NextWaqtInfo(
     val isTomorrow: Boolean
 )
 
+enum class AdhanVoice(
+    val titleBn: String,
+    val titleEn: String,
+    val shortTitleBn: String,
+    val shortTitleEn: String,
+    val subtitleBn: String,
+    val subtitleEn: String
+) {
+    MAKKAH(
+        titleBn = "মক্কা আযান (হিজাজ)",
+        titleEn = "Makkah Adhan (Hijaz)",
+        shortTitleBn = "মক্কা",
+        shortTitleEn = "Makkah",
+        subtitleBn = "মসজিদুল হারাম ধাঁচের আযানের সুর",
+        subtitleEn = "Masjid al-Haram inspired Adhan tone"
+    ),
+    MADINAH(
+        titleBn = "মদীনা আযান (রাস্ত)",
+        titleEn = "Madinah Adhan (Rast)",
+        shortTitleBn = "মদীনা",
+        shortTitleEn = "Madinah",
+        subtitleBn = "মসজিদে নববী ধাঁচের প্রশান্ত সুর",
+        subtitleEn = "Masjid an-Nabawi serene melodic cadence"
+    ),
+    AL_AQSA(
+        titleBn = "আল-আকসা / মিশারী সুর",
+        titleEn = "Al-Aqsa / Mishary Tone",
+        shortTitleBn = "আল-আকসা",
+        shortTitleEn = "Al-Aqsa",
+        subtitleBn = "মৃদু বায়াতি সুরের আযান কল",
+        subtitleEn = "Gentle Bayati melodic Adhan chime"
+    ),
+    SHORT_BEEP(
+        titleBn = "সংক্ষিপ্ত নোটিফিকেশন বিপ",
+        titleEn = "Short Notification Beep",
+        shortTitleBn = "বিপ",
+        shortTitleEn = "Beep",
+        subtitleBn = "হালকা সিস্টেম নোটিফিকেশন টোন",
+        subtitleEn = "Brief system notification tone"
+    ),
+    SILENT_VIBRATE(
+        titleBn = "নীরব / শুধু ভাইব্রেশন",
+        titleEn = "Silent / Vibration Only",
+        shortTitleBn = "ভাইব্রেট",
+        shortTitleEn = "Vibrate",
+        subtitleBn = "শব্দ ছাড়া শুধুমাত্র ভাইব্রেশন ও নোটিফিকেশন",
+        subtitleEn = "Vibration & notification without sound"
+    );
+
+    fun title(isEnglish: Boolean): String = if (isEnglish) titleEn else titleBn
+    fun shortTitle(isEnglish: Boolean): String = if (isEnglish) shortTitleEn else shortTitleBn
+    fun subtitle(isEnglish: Boolean): String = if (isEnglish) subtitleEn else subtitleBn
+
+    fun toLegacyAlertMode(enabled: Boolean): AdhanAlertMode {
+        if (!enabled) return AdhanAlertMode.SILENT
+        return when (this) {
+            MAKKAH, MADINAH, AL_AQSA -> AdhanAlertMode.FULL_ADHAN
+            SHORT_BEEP -> AdhanAlertMode.BEEP
+            SILENT_VIBRATE -> AdhanAlertMode.VIBRATE
+        }
+    }
+
+    companion object {
+        fun safeValueOf(raw: String?): AdhanVoice =
+            entries.firstOrNull { it.name == raw } ?: MAKKAH
+
+        fun fromLegacyMode(mode: AdhanAlertMode): AdhanVoice = when (mode) {
+            AdhanAlertMode.FULL_ADHAN -> MAKKAH
+            AdhanAlertMode.BEEP -> SHORT_BEEP
+            AdhanAlertMode.VIBRATE -> SILENT_VIBRATE
+            AdhanAlertMode.SILENT -> SILENT_VIBRATE
+        }
+    }
+}
+
+data class PerPrayerAlertSetting(
+    val enabled: Boolean = true,
+    val voice: AdhanVoice = AdhanVoice.MAKKAH,
+    val reminderMinutesBefore: Int = 15
+) {
+    val legacyAlertMode: AdhanAlertMode
+        get() = voice.toLegacyAlertMode(enabled)
+}
+
 data class WaqtAlertConfig(
     val fajr: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
     val dhuhr: AdhanAlertMode = AdhanAlertMode.BEEP,
     val asr: AdhanAlertMode = AdhanAlertMode.BEEP,
     val maghrib: AdhanAlertMode = AdhanAlertMode.FULL_ADHAN,
     val isha: AdhanAlertMode = AdhanAlertMode.BEEP,
-    val prePrayerMinutes: Int = 15
+    val prePrayerMinutes: Int = 15,
+    val fajrSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MAKKAH, 15),
+    val dhuhrSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MADINAH, 10),
+    val asrSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.AL_AQSA, 10),
+    val maghribSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MAKKAH, 5),
+    val ishaSetting: PerPrayerAlertSetting = PerPrayerAlertSetting(true, AdhanVoice.MADINAH, 15)
 ) {
-    fun modeFor(waqt: WaqtType): AdhanAlertMode = when (waqt) {
-        WaqtType.FAJR -> fajr
-        WaqtType.DHUHR -> dhuhr
-        WaqtType.ASR -> asr
-        WaqtType.MAGHRIB -> maghrib
-        WaqtType.ISHA -> isha
+    fun settingFor(waqt: WaqtType): PerPrayerAlertSetting = when (waqt) {
+        WaqtType.FAJR -> fajrSetting
+        WaqtType.DHUHR -> dhuhrSetting
+        WaqtType.ASR -> asrSetting
+        WaqtType.MAGHRIB -> maghribSetting
+        WaqtType.ISHA -> ishaSetting
     }
+
+    fun modeFor(waqt: WaqtType): AdhanAlertMode = settingFor(waqt).legacyAlertMode
 }

@@ -7,4 +7,15 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Home Screen Widget (Light Mode) -->
+    <color name="widget_bg">#FFF6FBF8</color>
+    <color name="widget_border">#FFD5E8DF</color>
+    <color name="widget_card_bg">#FFE7F3ED</color>
+    <color name="widget_badge_bg">#FF0B6B4F</color>
+    <color name="widget_badge_text">#FFFFFFFF</color>
+    <color name="widget_accent">#FF0B6B4F</color>
+    <color name="widget_accent_secondary">#FFB87A14</color>
+    <color name="widget_text_primary">#FF12231C</color>
+    <color name="widget_text_secondary">#FF4E655B</color>
 </resources>

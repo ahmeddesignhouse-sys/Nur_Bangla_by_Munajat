@@ -26,23 +26,6 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isValidPrayerStatus(status) {
-      return status is string && status in ['NONE', 'ON_TIME', 'LATE', 'QAZA'];
-    }
-
-    function isValidPrayerLog(data) {
-      return data.userId is string && data.userId == request.auth.uid &&
-             data.dateKey is string && data.dateKey.size() == 10 && data.dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
-             isValidPrayerStatus(data.fajrStatus) &&
-             isValidPrayerStatus(data.dhuhrStatus) &&
-             isValidPrayerStatus(data.asrStatus) &&
-             isValidPrayerStatus(data.maghribStatus) &&
-             isValidPrayerStatus(data.ishaStatus) &&
-             data.note is string && data.note.size() <= 500 &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
     function isValidQuranBookmark(data) {
       return data.userId is string && data.userId == request.auth.uid &&
              data.surahNumber is int && data.surahNumber >= 1 && data.surahNumber <= 114 &&
@@ -63,38 +46,9 @@ service cloud.firestore {
              data.quranDarkMode is bool &&
              data.quranFontSize is int && data.quranFontSize >= 14 && data.quranFontSize <= 32 &&
              data.prePrayerMinutes is int && data.prePrayerMinutes >= 0 && data.prePrayerMinutes <= 45 &&
+             (!('languageCode' in data) || (data.languageCode is string && data.languageCode in ['bn', 'en'])) &&
              data.createdAt is timestamp && data.createdAt <= request.time &&
              data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    match /users/{userId}/prayer_logs/{dateKey} {
-      allow get: if isOwner(userId) && isValidId(dateKey);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) &&
-                       isValidId(dateKey) &&
-                       dateKey == incoming().dateKey &&
-                       incoming().keys().hasAll([
-                         'userId', 'dateKey', 'fajrStatus', 'dhuhrStatus',
-                         'asrStatus', 'maghribStatus', 'ishaStatus', 'note',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'dateKey', 'fajrStatus', 'dhuhrStatus',
-                         'asrStatus', 'maghribStatus', 'ishaStatus', 'note',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidPrayerLog(incoming());
-      allow update: if isOwner(userId) &&
-                       isValidId(dateKey) &&
-                       incoming().userId == existing().userId &&
-                       incoming().dateKey == existing().dateKey &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidPrayerLog(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'fajrStatus', 'dhuhrStatus', 'asrStatus',
-                         'maghribStatus', 'ishaStatus', 'note', 'updatedAt'
-                       ]);
-      allow delete: if isOwner(userId) && isValidId(dateKey);
     }
 
     match /users/{userId}/bookmarks/{bookmarkId} {
@@ -135,7 +89,7 @@ service cloud.firestore {
                        incoming().keys().hasOnly([
                          'userId', 'districtId', 'asrMethod', 'themeMode',
                          'accentTheme', 'quranDarkMode', 'quranFontSize',
-                         'prePrayerMinutes', 'createdAt', 'updatedAt'
+                         'prePrayerMinutes', 'languageCode', 'createdAt', 'updatedAt'
                        ]) &&
                        isValidUserPreferences(incoming());
       allow update: if isOwner(userId) &&
@@ -145,7 +99,8 @@ service cloud.firestore {
                        isValidUserPreferences(incoming()) &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'districtId', 'asrMethod', 'themeMode', 'accentTheme',
-                         'quranDarkMode', 'quranFontSize', 'prePrayerMinutes', 'updatedAt'
+                         'quranDarkMode', 'quranFontSize', 'prePrayerMinutes',
+                         'languageCode', 'updatedAt'
                        ]);
       allow delete: if isOwner(userId) && isValidId(prefId);
     }

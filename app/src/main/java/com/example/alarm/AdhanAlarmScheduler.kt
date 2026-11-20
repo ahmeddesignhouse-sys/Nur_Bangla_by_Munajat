@@ -10,17 +10,29 @@ import android.os.Build
 import com.example.R
 import com.example.data.local.LocalAppSettings
 import com.example.data.model.AdhanAlertMode
+import com.example.data.model.AdhanVoice
 import com.example.data.model.BangladeshiDistricts
 import com.example.data.model.WaqtType
 import com.example.util.PrayerTimeCalculator
+import com.example.util.isEnglishLang
 import java.util.Calendar
+
+data class ScheduledPrayerAlarm(
+    val waqt: WaqtType,
+    val triggerAtMillis: Long,
+    val voice: AdhanVoice,
+    val isPreReminder: Boolean,
+    val preMinutes: Int
+)
 
 object AdhanAlarmScheduler {
     const val CHANNEL_ID = "adhan_alerts_channel"
     const val EXTRA_WAQT_KEY = "extra_waqt_key"
     const val EXTRA_ALERT_MODE = "extra_alert_mode"
+    const val EXTRA_ADHAN_VOICE = "extra_adhan_voice"
     const val EXTRA_IS_PRE_REMINDER = "extra_is_pre_reminder"
     const val EXTRA_PRE_MINUTES = "extra_pre_minutes"
+    const val EXTRA_LANGUAGE_CODE = "extra_language_code"
 
     fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -32,7 +44,6 @@ object AdhanAlarmScheduler {
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = context.getString(R.string.adhan_channel_desc)
-                    // Sound/vibration handled directly by AdhanAlarmReceiver based on per-Waqt preference
                     setSound(null, null)
                     enableVibration(false)
                 }
@@ -41,21 +52,27 @@ object AdhanAlarmScheduler {
         }
     }
 
-    fun scheduleUpcomingAlarms(context: Context, settings: LocalAppSettings) {
-        ensureNotificationChannel(context)
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
+    /**
+     * Pure timezone-aware alarm planner using the app's Auto Sync timezone & location logic.
+     * Any prayer with enabled == false produces zero alarms (neither main nor pre-reminder).
+     */
+    fun planUpcomingAlarms(
+        settings: LocalAppSettings,
+        nowEpoch: Long = System.currentTimeMillis()
+    ): List<ScheduledPrayerAlarm> {
         val district = BangladeshiDistricts.findById(settings.districtId)
-        val isManual = !settings.useGps || settings.gpsLatitude == null || settings.gpsLongitude == null
-        val lat = if (!isManual) settings.gpsLatitude!! else district.latitude
-        val lon = if (!isManual) settings.gpsLongitude!! else district.longitude
+        val gpsLat = settings.gpsLatitude
+        val gpsLon = settings.gpsLongitude
+        val isManual = !settings.useGps || gpsLat == null || gpsLon == null
+        val lat = if (!isManual) gpsLat else district.latitude
+        val lon = if (!isManual) gpsLon else district.longitude
 
-        val nowEpoch = System.currentTimeMillis()
+        val isEnglish = isEnglishLang(settings.languageCode)
         val targetTz = PrayerTimeCalculator.resolveTimeZone(lat, lon, isManualDistrict = isManual, atMillis = nowEpoch)
         val tzHours = targetTz.getOffset(nowEpoch) / 3_600_000.0
-        val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowEpoch)
+        val tzLabel = PrayerTimeCalculator.formatTimeZoneLabel(targetTz, nowEpoch, isEnglish)
 
-        val now = Calendar.getInstance(targetTz)
+        val now = Calendar.getInstance(targetTz).apply { timeInMillis = nowEpoch }
         val todaySchedule = PrayerTimeCalculator.calculateForDate(
             calendar = now,
             latitude = lat,
@@ -76,17 +93,10 @@ object AdhanAlarmScheduler {
             timeZoneLabel = tzLabel
         )
 
-        val preMinutes = settings.alertConfig.prePrayerMinutes
-
-        WaqtType.entries.forEachIndexed { index, waqt ->
-            val mode = settings.alertConfig.modeFor(waqt)
-            val mainRequestCode = 100 + index
-            val preRequestCode = 200 + index
-
-            cancelAlarm(context, alarmManager, mainRequestCode)
-            cancelAlarm(context, alarmManager, preRequestCode)
-
-            if (mode == AdhanAlertMode.SILENT) return@forEachIndexed
+        val planned = mutableListOf<ScheduledPrayerAlarm>()
+        WaqtType.entries.forEach { waqt ->
+            val setting = settings.alertConfig.settingFor(waqt)
+            if (!setting.enabled) return@forEach
 
             val todayTarget = triggerCalendar(now, todaySchedule.minuteFor(waqt))
             val mainTrigger = if (todayTarget.after(now)) {
@@ -95,33 +105,66 @@ object AdhanAlarmScheduler {
                 triggerCalendar(tomorrow, tomorrowSchedule.minuteFor(waqt))
             }
 
-            scheduleSingleAlarm(
-                context = context,
-                alarmManager = alarmManager,
-                requestCode = mainRequestCode,
-                triggerAtMillis = mainTrigger.timeInMillis,
-                waqt = waqt,
-                mode = mode,
-                isPreReminder = false,
-                preMinutes = 0
+            planned.add(
+                ScheduledPrayerAlarm(
+                    waqt = waqt,
+                    triggerAtMillis = mainTrigger.timeInMillis,
+                    voice = setting.voice,
+                    isPreReminder = false,
+                    preMinutes = 0
+                )
             )
 
-            if (preMinutes > 0) {
-                val preTriggerMillis = mainTrigger.timeInMillis - (preMinutes * 60_000L)
-                if (preTriggerMillis > System.currentTimeMillis()) {
-                    scheduleSingleAlarm(
-                        context = context,
-                        alarmManager = alarmManager,
-                        requestCode = preRequestCode,
-                        triggerAtMillis = preTriggerMillis,
-                        waqt = waqt,
-                        mode = AdhanAlertMode.BEEP,
-                        isPreReminder = true,
-                        preMinutes = preMinutes
+            val preMin = setting.reminderMinutesBefore
+            if (preMin > 0) {
+                val preTriggerMillis = mainTrigger.timeInMillis - (preMin * 60_000L)
+                if (preTriggerMillis > nowEpoch) {
+                    planned.add(
+                        ScheduledPrayerAlarm(
+                            waqt = waqt,
+                            triggerAtMillis = preTriggerMillis,
+                            voice = if (setting.voice == AdhanVoice.SILENT_VIBRATE) {
+                                AdhanVoice.SILENT_VIBRATE
+                            } else {
+                                AdhanVoice.SHORT_BEEP
+                            },
+                            isPreReminder = true,
+                            preMinutes = preMin
+                        )
                     )
                 }
             }
         }
+        return planned
+    }
+
+    fun scheduleUpcomingAlarms(context: Context, settings: LocalAppSettings) {
+        ensureNotificationChannel(context)
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        // Always cancel all existing alarms first so turning a prayer OFF guarantees zero alerts
+        WaqtType.entries.forEachIndexed { index, _ ->
+            cancelAlarm(context, alarmManager, 100 + index)
+            cancelAlarm(context, alarmManager, 200 + index)
+        }
+
+        val planned = planUpcomingAlarms(settings)
+        planned.forEach { item ->
+            val requestCode = (if (item.isPreReminder) 200 else 100) + item.waqt.ordinal
+            scheduleSingleAlarm(
+                context = context,
+                alarmManager = alarmManager,
+                requestCode = requestCode,
+                triggerAtMillis = item.triggerAtMillis,
+                waqt = item.waqt,
+                mode = item.voice.toLegacyAlertMode(enabled = true),
+                voice = item.voice,
+                isPreReminder = item.isPreReminder,
+                preMinutes = item.preMinutes,
+                languageCode = settings.languageCode
+            )
+        }
+        com.example.widget.PrayerTimesWidgetProvider.requestWidgetUpdate(context, settings)
     }
 
     private fun triggerCalendar(baseDate: Calendar, minuteOfDay: Int): Calendar {
@@ -140,14 +183,18 @@ object AdhanAlarmScheduler {
         triggerAtMillis: Long,
         waqt: WaqtType,
         mode: AdhanAlertMode,
+        voice: AdhanVoice,
         isPreReminder: Boolean,
-        preMinutes: Int
+        preMinutes: Int,
+        languageCode: String
     ) {
         val intent = Intent(context, AdhanAlarmReceiver::class.java).apply {
             putExtra(EXTRA_WAQT_KEY, waqt.key)
             putExtra(EXTRA_ALERT_MODE, mode.name)
+            putExtra(EXTRA_ADHAN_VOICE, voice.name)
             putExtra(EXTRA_IS_PRE_REMINDER, isPreReminder)
             putExtra(EXTRA_PRE_MINUTES, preMinutes)
+            putExtra(EXTRA_LANGUAGE_CODE, languageCode)
         }
         val pi = PendingIntent.getBroadcast(
             context,

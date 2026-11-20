@@ -8,6 +8,7 @@ import com.example.data.model.ForbiddenTimeWindow
 import com.example.data.model.NextWaqtInfo
 import com.example.data.model.WaqtType
 import java.util.Calendar
+import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.acos
@@ -36,8 +37,8 @@ object PrayerTimeCalculator {
     /**
      * Resolves the correct TimeZone for a coordinate pair:
      * - Manual Bangladesh district or coordinates inside Bangladesh -> Asia/Dhaka (GMT+6)
-     * - Worldwide GPS -> uses device TimeZone if its offset matches the solar longitude (within 2.5h,
-     *   preserving DST & half-hour offsets like India +5:30), otherwise resolves regional timezone.
+     * - Worldwide GPS -> uses IANA regional timezone (preserving DST & half-hour offsets like India +5:30),
+     *   else device TimeZone if its offset matches solar longitude within 2h, else approximate GMT offset.
      */
     fun resolveTimeZone(
         latitude: Double,
@@ -49,17 +50,20 @@ object PrayerTimeCalculator {
             return TimeZone.getTimeZone("Asia/Dhaka")
         }
 
-        // Unambiguous regional IANA timezones (preserve exact local offsets & IANA DST rules even if device clock lags)
         val regionalTzId: String? = when {
             latitude in 23.6..37.1 && longitude in 60.8..74.6 -> "Asia/Karachi"
             latitude in 6.0..37.0 && longitude in 68.0..97.5 -> "Asia/Kolkata"
-            latitude in 22.5..26.5 && longitude in 51.4..56.5 -> "Asia/Dubai"
-            latitude in 12.0..33.0 && longitude in 34.0..56.5 -> "Asia/Riyadh"
+            latitude in 24.4..26.2 && longitude in 50.7..51.7 -> "Asia/Qatar"
+            latitude in 28.5..30.2 && longitude in 46.5..48.6 -> "Asia/Kuwait"
+            latitude in 16.5..26.4 && longitude in 52.0..59.9 -> "Asia/Dubai"
+            latitude in 12.0..33.0 && longitude in 34.0..52.0 -> "Asia/Riyadh"
+            latitude in 22.0..31.7 && longitude in 24.7..34.0 -> "Africa/Cairo"
             latitude in 1.1..1.5 && longitude in 103.6..104.1 -> "Asia/Singapore"
             latitude in 1.0..7.5 && longitude in 99.5..119.5 -> "Asia/Kuala_Lumpur"
             latitude in -11.0..6.0 && longitude in 95.0..115.0 -> "Asia/Jakarta"
             latitude in 30.0..46.0 && longitude in 129.0..146.0 -> "Asia/Tokyo"
             latitude in -44.0..-10.0 && longitude in 140.0..154.0 -> "Australia/Sydney"
+            latitude in -47.0..-34.0 && longitude in 166.0..179.0 -> "Pacific/Auckland"
             latitude in 36.0..42.5 && longitude in 26.0..45.0 -> "Europe/Istanbul"
             latitude in 49.0..60.0 && longitude in -10.5..2.0 -> "Europe/London"
             latitude in 36.0..60.0 && longitude in 2.0..24.0 -> "Europe/Berlin"
@@ -87,14 +91,22 @@ object PrayerTimeCalculator {
         return TimeZone.getTimeZone("GMT$sign${abs(approxHours)}")
     }
 
-    fun formatTimeZoneLabel(tz: TimeZone, atMillis: Long = System.currentTimeMillis()): String {
+    fun formatTimeZoneLabel(
+        tz: TimeZone,
+        atMillis: Long = System.currentTimeMillis(),
+        isEnglish: Boolean = false
+    ): String {
         val offsetMins = tz.getOffset(atMillis) / 60_000
         val sign = if (offsetMins >= 0) "+" else "-"
         val absMins = abs(offsetMins)
         val hours = absMins / 60
         val mins = absMins % 60
-        val raw = if (mins == 0) "GMT$sign$hours" else String.format("GMT%s%d:%02d", sign, hours, mins)
-        return BanglaUtils.toBanglaDigits(raw)
+        val raw = if (mins == 0) {
+            "GMT$sign$hours"
+        } else {
+            String.format(Locale.US, "GMT%s%d:%02d", sign, hours, mins)
+        }
+        return BanglaUtils.formatDigits(raw, isEnglish)
     }
 
     fun resolveCalculationMethod(
@@ -150,7 +162,6 @@ object PrayerTimeCalculator {
         val fajrMin = toMinutes(fajrHours)
         val dhuhrMin = solarNoonMin
         val asrMin = toMinutes(asrHours)
-        // Safety buffer: +3 min after sunset for Maghrib/Iftar (matches Dhaka Islamic Foundation/Academy table)
         val maghribMin = (sunsetMin + 3) % 1440
         val ishaMin = if (effectiveMethod.ishaIntervalMinutes != null) {
             (maghribMin + effectiveMethod.ishaIntervalMinutes) % 1440
@@ -161,9 +172,24 @@ object PrayerTimeCalculator {
         val iftarMin = maghribMin
 
         val forbidden = listOf(
-            ForbiddenTimeWindow("সূর্যোদয়ের নিষিদ্ধ সময়", sunriseMin, (sunriseMin + 15) % 1440),
-            ForbiddenTimeWindow("দ্বিপ্রহর (যাওয়াল) নিষিদ্ধ সময়", ((solarNoonMin - 10) + 1440) % 1440, solarNoonMin),
-            ForbiddenTimeWindow("সূর্যাস্তের নিষিদ্ধ সময়", ((sunsetMin - 15) + 1440) % 1440, sunsetMin)
+            ForbiddenTimeWindow(
+                labelBn = "সূর্যোদয়ের নিষিদ্ধ সময়",
+                labelEn = "Sunrise Forbidden Time",
+                startMinute = sunriseMin,
+                endMinute = (sunriseMin + 15) % 1440
+            ),
+            ForbiddenTimeWindow(
+                labelBn = "দ্বিপ্রহর (যাওয়াল) নিষিদ্ধ সময়",
+                labelEn = "Solar Noon (Zawal) Forbidden",
+                startMinute = ((solarNoonMin - 10) + 1440) % 1440,
+                endMinute = solarNoonMin
+            ),
+            ForbiddenTimeWindow(
+                labelBn = "সূর্যাস্তের নিষিদ্ধ সময়",
+                labelEn = "Sunset Forbidden Time",
+                startMinute = ((sunsetMin - 15) + 1440) % 1440,
+                endMinute = sunsetMin
+            )
         )
 
         return DailyPrayerSchedule(
@@ -178,7 +204,7 @@ object PrayerTimeCalculator {
             iftarMinute = iftarMin,
             forbiddenTimes = forbidden,
             timeZoneLabel = timeZoneLabel,
-            appliedMethodTitleBn = effectiveMethod.titleBn
+            appliedMethod = effectiveMethod
         )
     }
 
@@ -232,9 +258,6 @@ object PrayerTimeCalculator {
         }
     }
 
-    /**
-     * Returns bearing from North (0..360 degrees clockwise) toward Kaaba.
-     */
     fun calculateQiblaBearing(latitude: Double, longitude: Double): Float {
         val latRad = Math.toRadians(latitude)
         val kaabaLatRad = Math.toRadians(KAABA_LAT)

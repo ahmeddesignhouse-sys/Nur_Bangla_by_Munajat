@@ -12,7 +12,6 @@ import android.os.VibratorManager
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,9 +30,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Mosque
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -80,6 +88,9 @@ import com.example.ui.NoorUiState
 import com.example.ui.theme.AmiriFontFamily
 import com.example.ui.theme.StatusOnTimeColor
 import com.example.util.BanglaUtils
+import com.example.util.LocalAppLanguage
+import com.example.util.isEnglishLang
+import com.example.util.tr
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
@@ -91,8 +102,17 @@ fun IslamicToolsScreen(
     onIncrementTasbih: () -> Boolean,
     onResetTasbih: () -> Unit,
     onSelectDhikr: (DhikrItem) -> Unit,
-    onSetTasbihTarget: (Int) -> Unit
+    onSetTasbihTarget: (Int) -> Unit,
+    onOpenHijriCalendar: () -> Unit,
+    onOpenDuaAzkar: () -> Unit,
+    onOpenAsmaulHusna: () -> Unit,
+    onOpenRamadanCalendar: () -> Unit,
+    onOpenZakatCalculator: () -> Unit,
+    onOpenMosqueFinder: () -> Unit,
+    onOpenHajjUmrahGuide: () -> Unit,
+    onOpenHalalFinder: () -> Unit
 ) {
+    val isEn = isEnglishLang(LocalAppLanguage.current)
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Qibla, 1 = Tasbih
 
     Column(
@@ -101,11 +121,102 @@ fun IslamicToolsScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Text(
-            text = "ইসলামিক টুলস (অফলাইন)",
+            text = tr(isEn, "ইসলামিক টুলস", "Islamic Tools"),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(10.dp))
+
+        // Row 1: Hijri Calendar, Dua & Azkar, 99 Names of Allah
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.CalendarMonth,
+                title = tr(isEn, "হিজরি\nক্যালেন্ডার", "Hijri\nCalendar"),
+                onClick = onOpenHijriCalendar,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_hijri_calendar")
+            )
+            ToolFeatureShortcutCard(
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                title = tr(isEn, "দোয়া ও\nআজকার", "Dua &\nAzkar"),
+                onClick = onOpenDuaAzkar,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_dua_azkar")
+            )
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.AutoAwesome,
+                title = tr(isEn, "আল্লাহর\n৯৯ নাম", "99 Names\nof Allah"),
+                onClick = onOpenAsmaulHusna,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_asmaul_husna")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Row 2: Ramadan Calendar, Zakat Calculator, Mosque Finder
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.NightsStay,
+                title = tr(isEn, "রমজান\nক্যালেন্ডার", "Ramadan\nCalendar"),
+                onClick = onOpenRamadanCalendar,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_ramadan_calendar")
+            )
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.Calculate,
+                title = tr(isEn, "যাকাত\nহিসাব", "Zakat\nCalculator"),
+                onClick = onOpenZakatCalculator,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_zakat_calculator")
+            )
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.Mosque,
+                title = tr(isEn, "নিকটবর্তী\nমসজিদ", "Mosque\nFinder"),
+                onClick = onOpenMosqueFinder,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_mosque_finder")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Row 3: Hajj & Umrah Guide, Halal Food Finder
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.TravelExplore,
+                title = tr(isEn, "হজ্জ ও উমরাহ\nগাইড", "Hajj & Umrah\nGuide"),
+                onClick = onOpenHajjUmrahGuide,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_hajj_umrah")
+            )
+            ToolFeatureShortcutCard(
+                icon = Icons.Default.Restaurant,
+                title = tr(isEn, "হালাল\nরেস্টুরেন্ট", "Halal Food\nFinder"),
+                onClick = onOpenHalalFinder,
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("tools_open_halal_finder")
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             SegmentedButton(
@@ -114,7 +225,7 @@ fun IslamicToolsScreen(
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                 icon = { Icon(Icons.Default.Explore, contentDescription = null) }
             ) {
-                Text("কিবলা কম্পাস")
+                Text(tr(isEn, "কিবলা কম্পাস", "Qibla Compass"))
             }
             SegmentedButton(
                 selected = selectedTab == 1,
@@ -122,17 +233,18 @@ fun IslamicToolsScreen(
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                 icon = { Icon(Icons.Default.TouchApp, contentDescription = null) }
             ) {
-                Text("ডিজিটাল তাসবিহ")
+                Text(tr(isEn, "ডিজিটাল তাসবিহ", "Digital Tasbih"))
             }
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
         if (selectedTab == 0) {
-            QiblaCompassPane(uiState = uiState)
+            QiblaCompassPane(uiState = uiState, isEn = isEn)
         } else {
             DigitalTasbihPane(
                 uiState = uiState,
+                isEn = isEn,
                 currentDhikr = currentDhikr,
                 onIncrement = onIncrementTasbih,
                 onReset = onResetTasbih,
@@ -144,7 +256,44 @@ fun IslamicToolsScreen(
 }
 
 @Composable
-private fun QiblaCompassPane(uiState: NoorUiState) {
+private fun ToolFeatureShortcutCard(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title.replace("\n", " "),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                textAlign = TextAlign.Center,
+                maxLines = 2
+            )
+        }
+    }
+}
+
+@Composable
+private fun QiblaCompassPane(uiState: NoorUiState, isEn: Boolean) {
     val context = LocalContext.current
     var azimuthDeg by remember { mutableFloatStateOf(0f) }
     var sensorAvailable by remember { mutableStateOf(true) }
@@ -253,21 +402,40 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = if (isAligned) "আলহামদুলিল্লাহ! আপনি সঠিক কিবলামুখী হয়েছেন"
-                        else "ফোনটি সমতলে রেখে কিবলার দিকে ঘোরান",
+                        text = if (isAligned) {
+                            tr(
+                                isEn,
+                                "আলহামদুলিল্লাহ! আপনি সঠিক কিবলামুখী হয়েছেন",
+                                "Alhamdulillah! You are facing the Qibla"
+                            )
+                        } else {
+                            tr(
+                                isEn,
+                                "ফোনটি সমতলে রেখে কিবলার দিকে ঘোরান",
+                                "Hold your phone flat and rotate toward Qibla"
+                            )
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (isAligned) StatusOnTimeColor else primaryColor,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "${uiState.locationDisplayTitle} থেকে কাবার দিক: ${BanglaUtils.toBanglaNumber(qiblaBearing.toInt())}° (${cardinalDirectionBn(qiblaBearing)})",
+                        text = tr(
+                            isEn,
+                            "${uiState.locationDisplayTitle} থেকে কাবার দিক: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), false)}° (${cardinalDirection(qiblaBearing, false)})",
+                            "Qibla from ${uiState.locationDisplayTitle}: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), true)}° (${cardinalDirection(qiblaBearing, true)})"
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "মক্কা শরীফের দূরত্ব: প্রায় ${BanglaUtils.toBanglaNumber(uiState.distanceToKaabaKm)} কি.মি.",
+                        text = tr(
+                            isEn,
+                            "মক্কা শরীফের দূরত্ব: প্রায় ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, false)} কি.মি.",
+                            "Distance to Makkah: approx. ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, true)} km"
+                        ),
                         style = MaterialTheme.typography.labelLarge,
                         color = secondaryColor
                     )
@@ -286,7 +454,6 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val radius = size.minDimension / 2f - 10f
 
-                    // Outer bezel
                     drawCircle(
                         color = if (isAligned) StatusOnTimeColor else primaryColor,
                         radius = radius,
@@ -297,7 +464,6 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                         radius = radius - 10f
                     )
 
-                    // Rotating compass ticks
                     rotate(degrees = animatedDialRotation, pivot = center) {
                         for (deg in 0 until 360 step 15) {
                             val rad = Math.toRadians(deg.toDouble() - 90.0)
@@ -319,7 +485,6 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                         }
                     }
 
-                    // Qibla pointer needle
                     rotate(degrees = animatedQiblaNeedle, pivot = center) {
                         val arrowPath = Path().apply {
                             moveTo(center.x, center.y - radius + 34f)
@@ -332,7 +497,6 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                             path = arrowPath,
                             color = if (isAligned) StatusOnTimeColor else primaryColor
                         )
-                        // Kaaba gold tip
                         drawCircle(
                             color = secondaryColor,
                             radius = 9f,
@@ -352,7 +516,11 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                 ) {
                     Text(
-                        text = "এই ডিভাইসে ম্যাগনেটোমিটার সেন্সর পাওয়া যায়নি। তবুও ভৌগোলিক হিসেব অনুযায়ী কাবার দিক ${cardinalDirectionBn(qiblaBearing)} (${BanglaUtils.toBanglaNumber(qiblaBearing.toInt())}°)।",
+                        text = tr(
+                            isEn,
+                            "এই ডিভাইসে ম্যাগনেটোমিটার সেন্সর পাওয়া যায়নি। তবুও ভৌগোলিক হিসেব অনুযায়ী কাবার দিক ${cardinalDirection(qiblaBearing, false)} (${BanglaUtils.formatNumber(qiblaBearing.toInt(), false)}°)।",
+                            "Magnetometer sensor not found on this device. Geographically, Qibla is ${cardinalDirection(qiblaBearing, true)} (${BanglaUtils.formatNumber(qiblaBearing.toInt(), true)}°)."
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(14.dp)
@@ -363,17 +531,17 @@ private fun QiblaCompassPane(uiState: NoorUiState) {
     }
 }
 
-private fun cardinalDirectionBn(bearingDeg: Float): String {
+private fun cardinalDirection(bearingDeg: Float, isEn: Boolean): String {
     val norm = ((bearingDeg % 360f) + 360f) % 360f
     return when {
-        norm < 22.5f || norm >= 337.5f -> "উত্তর"
-        norm < 67.5f -> "উত্তর-পূর্ব"
-        norm < 112.5f -> "পূর্ব"
-        norm < 157.5f -> "দক্ষিণ-পূর্ব"
-        norm < 202.5f -> "দক্ষিণ"
-        norm < 247.5f -> "দক্ষিণ-পশ্চিম"
-        norm < 292.5f -> "পশ্চিম"
-        else -> "উত্তর-পশ্চিম"
+        norm < 22.5f || norm >= 337.5f -> tr(isEn, "উত্তর", "North")
+        norm < 67.5f -> tr(isEn, "উত্তর-পূর্ব", "North-East")
+        norm < 112.5f -> tr(isEn, "পূর্ব", "East")
+        norm < 157.5f -> tr(isEn, "দক্ষিণ-পূর্ব", "South-East")
+        norm < 202.5f -> tr(isEn, "দক্ষিণ", "South")
+        norm < 247.5f -> tr(isEn, "দক্ষিণ-পশ্চিম", "South-West")
+        norm < 292.5f -> tr(isEn, "পশ্চিম", "West")
+        else -> tr(isEn, "উত্তর-পশ্চিম", "North-West")
     }
 }
 
@@ -387,6 +555,7 @@ private fun smoothAngle(current: Float, target: Float): Float {
 @Composable
 private fun DigitalTasbihPane(
     uiState: NoorUiState,
+    isEn: Boolean,
     currentDhikr: DhikrItem,
     onIncrement: () -> Boolean,
     onReset: () -> Unit,
@@ -408,20 +577,18 @@ private fun DigitalTasbihPane(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Bangla Dhikr Selector
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(BanglaDhikrCatalog.ALL, key = { it.id }) { item ->
                     FilterChip(
                         selected = item.id == currentDhikr.id,
                         onClick = { onSelectDhikr(item) },
-                        label = { Text(item.banglaTitle) }
+                        label = { Text(item.title(isEn)) }
                     )
                 }
             }
         }
 
-        // Active Dhikr Display Card
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -443,12 +610,12 @@ private fun DigitalTasbihPane(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = currentDhikr.banglaTitle,
+                        text = currentDhikr.title(isEn),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = currentDhikr.banglaMeaning,
+                        text = currentDhikr.meaning(isEn),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -457,7 +624,6 @@ private fun DigitalTasbihPane(
             }
         }
 
-        // Tactile Counter Circle
         item {
             val primaryColor = MaterialTheme.colorScheme.primary
             val trackColor = MaterialTheme.colorScheme.surfaceVariant
@@ -508,18 +674,18 @@ private fun DigitalTasbihPane(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = BanglaUtils.toBanglaNumber(count),
+                            text = BanglaUtils.formatNumber(count, isEn),
                             style = MaterialTheme.typography.displayLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "লক্ষ্য: ${BanglaUtils.toBanglaNumber(target)}",
+                            text = "${tr(isEn, "লক্ষ্য", "Target")}: ${BanglaUtils.formatNumber(target, isEn)}",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "ট্যাপ করুন",
+                            text = tr(isEn, "ট্যাপ করুন", "Tap to count"),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -528,10 +694,13 @@ private fun DigitalTasbihPane(
             }
         }
 
-        // Target & Cycles Controls
         item {
             Text(
-                text = "সম্পন্ন চক্র: ${BanglaUtils.toBanglaNumber(cycles)} বার",
+                text = tr(
+                    isEn,
+                    "সম্পন্ন চক্র: ${BanglaUtils.formatNumber(cycles, false)} বার",
+                    "Completed Cycles: ${BanglaUtils.formatNumber(cycles, true)}"
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -546,17 +715,17 @@ private fun DigitalTasbihPane(
                     FilterChip(
                         selected = target == preset,
                         onClick = { onSetTarget(preset) },
-                        label = { Text(BanglaUtils.toBanglaNumber(preset)) }
+                        label = { Text(BanglaUtils.formatNumber(preset, isEn)) }
                     )
                 }
                 OutlinedButton(onClick = { showCustomTargetDialog = true }) {
-                    Text("কাস্টম")
+                    Text(tr(isEn, "কাস্টম", "Custom"))
                 }
                 OutlinedButton(
                     onClick = onReset,
                     modifier = Modifier.testTag("tasbih_reset_button")
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "রিসেট", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Refresh, contentDescription = tr(isEn, "রিসেট", "Reset"), modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -566,12 +735,16 @@ private fun DigitalTasbihPane(
         var input by remember { mutableStateOf(target.toString()) }
         AlertDialog(
             onDismissRequest = { showCustomTargetDialog = false },
-            title = { Text("কাস্টম তাসবিহ লক্ষ্য") },
+            title = { Text(tr(isEn, "কাস্টম তাসবিহ লক্ষ্য", "Custom Tasbih Target")) },
             text = {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it.filter { ch -> ch.isDigit() }.take(4) },
-                    label = { Text("সংখ্যা লিখুন (যেমন: ১০০০)") },
+                    label = {
+                        Text(
+                            tr(isEn, "সংখ্যা লিখুন (যেমন: ১০০০)", "Enter target count (e.g., 1000)")
+                        )
+                    },
                     singleLine = true
                 )
             },
@@ -583,12 +756,12 @@ private fun DigitalTasbihPane(
                     }
                     showCustomTargetDialog = false
                 }) {
-                    Text("সেট করুন")
+                    Text(tr(isEn, "সেট করুন", "Set"))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCustomTargetDialog = false }) {
-                    Text("বাতিল")
+                    Text(tr(isEn, "বাতিল", "Cancel"))
                 }
             }
         )

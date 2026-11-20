@@ -1,74 +1,8 @@
 {
   "entities": {
-    "PrayerLog": {
-      "title": "PrayerLog",
-      "description": "Daily 5-waqt prayer tracking record synced across devices.",
-      "type": "object",
-      "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Authenticated Firebase user UID."
-        },
-        "dateKey": {
-          "type": "string",
-          "description": "ISO date key in yyyy-MM-dd format."
-        },
-        "fajrStatus": {
-          "type": "string",
-          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
-          "description": "Fajr completion status."
-        },
-        "dhuhrStatus": {
-          "type": "string",
-          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
-          "description": "Dhuhr completion status."
-        },
-        "asrStatus": {
-          "type": "string",
-          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
-          "description": "Asr completion status."
-        },
-        "maghribStatus": {
-          "type": "string",
-          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
-          "description": "Maghrib completion status."
-        },
-        "ishaStatus": {
-          "type": "string",
-          "enum": ["NONE", "ON_TIME", "LATE", "QAZA"],
-          "description": "Isha completion status."
-        },
-        "note": {
-          "type": "string",
-          "description": "Optional daily reflection note in Bangla."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp on creation (FieldValue.serverTimestamp())."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp on last update (FieldValue.serverTimestamp())."
-        }
-      },
-      "required": [
-        "userId",
-        "dateKey",
-        "fajrStatus",
-        "dhuhrStatus",
-        "asrStatus",
-        "maghribStatus",
-        "ishaStatus",
-        "note",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
     "QuranBookmark": {
       "title": "QuranBookmark",
-      "description": "Bookmarked Quran Ayah with Arabic and Bangla translation.",
+      "description": "Bookmarked Quran Ayah with Arabic and translation text.",
       "type": "object",
       "properties": {
         "userId": {
@@ -119,7 +53,7 @@
     },
     "UserPreferences": {
       "title": "UserPreferences",
-      "description": "User preferences for theme, district, calculation method, and Quran reader.",
+      "description": "User preferences for language, theme, district, calculation method, and Quran reader.",
       "type": "object",
       "properties": {
         "userId": {
@@ -157,6 +91,11 @@
           "type": "integer",
           "description": "Pre-prayer reminder lead minutes."
         },
+        "languageCode": {
+          "type": "string",
+          "enum": ["bn", "en"],
+          "description": "App display and Quran translation language code."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -183,10 +122,6 @@
     }
   },
   "firestore": {
-    "/users/{userId}/prayer_logs/{dateKey}": {
-      "schema": { "$ref": "#/entities/PrayerLog" },
-      "description": "User-scoped daily 5-waqt prayer logs."
-    },
     "/users/{userId}/bookmarks/{bookmarkId}": {
       "schema": { "$ref": "#/entities/QuranBookmark" },
       "description": "User-scoped Quran Ayah bookmarks."

@@ -2,7 +2,6 @@ package com.example.data.remote
 
 import android.content.Context
 import com.example.R
-import com.example.data.model.PrayerLogDoc
 import com.example.data.model.QuranBookmarkDoc
 import com.example.data.model.UserPreferencesDoc
 import com.google.firebase.Firebase
@@ -15,8 +14,8 @@ import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
@@ -32,35 +31,9 @@ class FirestoreSyncRepository(
 
     private fun requireUserId(expectedUid: String): String {
         val currentUid = auth.currentUser?.uid
-            ?: throw IllegalStateException("ব্যবহারকারী সাইন ইন করা নেই।")
-        check(currentUid == expectedUid) { "সক্রিয় অ্যাকাউন্ট পরিবর্তিত হয়েছে।" }
+            ?: throw IllegalStateException("User is not signed in.")
+        check(currentUid == expectedUid) { "Active account changed." }
         return currentUid
-    }
-
-    fun observePrayerLogs(userId: String): Flow<List<PrayerLogDoc>> = flow {
-        val uid = requireUserId(userId)
-        val path = "users/$uid/prayer_logs"
-        emitAll(
-            db.collection("users").document(uid).collection("prayer_logs")
-                .snapshots()
-                .map { snapshot ->
-                    snapshot.toObjects(
-                        PrayerLogDoc::class.java,
-                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                    )
-                }
-                .catch { error ->
-                    val firestoreError = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (firestoreError == null && error is CancellationException) throw error
-                    val toLog = firestoreError ?: (error as? Exception)
-                    if (toLog != null && auth.currentUser?.uid == uid) {
-                        handleFirestoreError(toLog, OperationType.LIST, path)
-                    }
-                    throw error
-                }
-        )
     }
 
     fun observeBookmarks(userId: String): Flow<List<QuranBookmarkDoc>> = flow {
@@ -118,33 +91,11 @@ class FirestoreSyncRepository(
         )
     }
 
-    suspend fun upsertPrayerLog(userId: String, doc: PrayerLogDoc): Result<Unit> {
-        val docPath = "users/$userId/prayer_logs/${doc.dateKey}"
-        return try {
-            val uid = requireUserId(userId)
-            require(doc.dateKey.matches(Regex("^\\d{4}-\\d{2}-\\d{2}$"))) { "অবৈধ তারিখ ফরম্যাট" }
-            val ref = db.collection("users").document(uid)
-                .collection("prayer_logs").document(doc.dateKey)
-            val existing = ref.get().await()
-            if (existing.exists()) {
-                ref.update(doc.toUpdateMap()).await()
-            } else {
-                ref.set(doc.toCreateMap(uid)).await()
-            }
-            Result.success(Unit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            handleFirestoreError(e, OperationType.WRITE, docPath)
-            Result.failure(e)
-        }
-    }
-
     suspend fun upsertBookmark(userId: String, bookmarkId: String, doc: QuranBookmarkDoc): Result<Unit> {
         val docPath = "users/$userId/bookmarks/$bookmarkId"
         return try {
             val uid = requireUserId(userId)
-            require(bookmarkId.isNotBlank()) { "বুকমার্ক আইডি খালি হতে পারবে না" }
+            require(bookmarkId.isNotBlank()) { "Bookmark ID cannot be empty" }
             val ref = db.collection("users").document(uid)
                 .collection("bookmarks").document(bookmarkId)
             ref.set(doc.toCreateMap(uid)).await()

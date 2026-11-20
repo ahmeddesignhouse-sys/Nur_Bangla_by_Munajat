@@ -9,45 +9,6 @@ import com.google.firebase.firestore.ServerTimestamp
 
 @Keep
 @IgnoreExtraProperties
-data class PrayerLogDoc(
-    @DocumentId val id: String = "",
-    val userId: String = "",
-    val dateKey: String = "",
-    val fajrStatus: String = PrayerStatus.NONE.name,
-    val dhuhrStatus: String = PrayerStatus.NONE.name,
-    val asrStatus: String = PrayerStatus.NONE.name,
-    val maghribStatus: String = PrayerStatus.NONE.name,
-    val ishaStatus: String = PrayerStatus.NONE.name,
-    val note: String = "",
-    @ServerTimestamp val createdAt: Timestamp? = null,
-    @ServerTimestamp val updatedAt: Timestamp? = null
-) {
-    fun toCreateMap(uid: String): Map<String, Any> = mapOf(
-        "userId" to uid,
-        "dateKey" to dateKey,
-        "fajrStatus" to fajrStatus,
-        "dhuhrStatus" to dhuhrStatus,
-        "asrStatus" to asrStatus,
-        "maghribStatus" to maghribStatus,
-        "ishaStatus" to ishaStatus,
-        "note" to note.take(500),
-        "createdAt" to FieldValue.serverTimestamp(),
-        "updatedAt" to FieldValue.serverTimestamp()
-    )
-
-    fun toUpdateMap(): Map<String, Any> = mapOf(
-        "fajrStatus" to fajrStatus,
-        "dhuhrStatus" to dhuhrStatus,
-        "asrStatus" to asrStatus,
-        "maghribStatus" to maghribStatus,
-        "ishaStatus" to ishaStatus,
-        "note" to note.take(500),
-        "updatedAt" to FieldValue.serverTimestamp()
-    )
-}
-
-@Keep
-@IgnoreExtraProperties
 data class QuranBookmarkDoc(
     @DocumentId val id: String = "",
     val userId: String = "",
@@ -83,9 +44,12 @@ data class UserPreferencesDoc(
     val quranDarkMode: Boolean = false,
     val quranFontSize: Long = 20L,
     val prePrayerMinutes: Long = 15L,
+    val languageCode: String = "bn",
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
+    private fun normalizedLanguage(): String = if (languageCode == "en") "en" else "bn"
+
     fun toCreateMap(uid: String): Map<String, Any> = mapOf(
         "userId" to uid,
         "districtId" to districtId.take(40),
@@ -95,6 +59,7 @@ data class UserPreferencesDoc(
         "quranDarkMode" to quranDarkMode,
         "quranFontSize" to quranFontSize.coerceIn(14L, 32L),
         "prePrayerMinutes" to prePrayerMinutes.coerceIn(0L, 45L),
+        "languageCode" to normalizedLanguage(),
         "createdAt" to FieldValue.serverTimestamp(),
         "updatedAt" to FieldValue.serverTimestamp()
     )
@@ -107,6 +72,7 @@ data class UserPreferencesDoc(
         "quranDarkMode" to quranDarkMode,
         "quranFontSize" to quranFontSize.coerceIn(14L, 32L),
         "prePrayerMinutes" to prePrayerMinutes.coerceIn(0L, 45L),
+        "languageCode" to normalizedLanguage(),
         "updatedAt" to FieldValue.serverTimestamp()
     )
 }

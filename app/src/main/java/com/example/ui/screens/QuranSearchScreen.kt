@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,24 +18,35 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.material.icons.filled.Mosque
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -43,6 +55,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,14 +67,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.model.PrayerStatus
 import com.example.data.model.Surah
-import com.example.data.model.WaqtType
 import com.example.ui.NoorUiState
 import com.example.ui.theme.AmiriFontFamily
 import com.example.util.BanglaUtils
+import com.example.util.LocalAppLanguage
+import com.example.util.QuranAudioState
+import com.example.util.isEnglishLang
+import com.example.util.tr
 
 @Composable
 fun QuranSearchScreen(
@@ -70,11 +86,19 @@ fun QuranSearchScreen(
     onToggleBookmark: (Surah, Int, String, String) -> Unit,
     onQuranDarkModeChanged: (Boolean) -> Unit,
     onQuranFontSizeChanged: (Int) -> Unit,
-    onNavigateToTrackerDate: (String) -> Unit
+    onPlaySurahAudio: (Surah) -> Unit,
+    onPlayAyahAudio: (Surah, Int) -> Unit,
+    onToggleAudioPlayPause: () -> Unit,
+    onNextAudioAyah: () -> Unit,
+    onPreviousAudioAyah: () -> Unit,
+    onStopAudio: () -> Unit,
+    onToggleAyahReadToday: (Int, Int) -> Unit
 ) {
+    val isEn = isEnglishLang(LocalAppLanguage.current)
     var selectedSurah by remember { mutableStateOf<Surah?>(null) }
     var showOnlyBookmarks by remember { mutableStateOf(false) }
     var showReaderSettings by remember { mutableStateOf(false) }
+    val audioState = uiState.quranAudioState
 
     val quranDark = uiState.settings.quranDarkMode
     val readerBg = if (quranDark) Color(0xFF101513) else MaterialTheme.colorScheme.background
@@ -84,6 +108,16 @@ fun QuranSearchScreen(
 
     if (selectedSurah != null) {
         val surah = selectedSurah!!
+        val listState = rememberLazyListState()
+        val isThisSurahPlaying = audioState.surahNumber == surah.number && audioState.isPlaying
+        val isThisSurahLoading = audioState.surahNumber == surah.number && audioState.isLoading
+
+        LaunchedEffect(audioState.surahNumber, audioState.ayahIndex) {
+            if (audioState.surahNumber == surah.number && audioState.ayahIndex in surah.ayahs.indices) {
+                listState.animateScrollToItem(audioState.ayahIndex)
+            }
+        }
+
         BackHandler { selectedSurah = null }
 
         Column(
@@ -102,34 +136,64 @@ fun QuranSearchScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             IconButton(
                                 onClick = { selectedSurah = null },
                                 modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "ফিরে যান",
+                                    contentDescription = tr(isEn, "ফিরে যান", "Back"),
                                     tint = readerText
                                 )
                             }
                             Column {
                                 Text(
-                                    text = "${BanglaUtils.toBanglaNumber(surah.number)}. ${surah.nameBangla}",
+                                    text = "${BanglaUtils.formatNumber(surah.number, isEn)}. ${surah.displayName(isEn)}",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = readerText
                                 )
                                 Text(
-                                    text = "${surah.revelationTypeBn} • ${BanglaUtils.toBanglaNumber(surah.ayahs.size)} আয়াত",
+                                    text = "${surah.revelationType(isEn)} • ${BanglaUtils.formatNumber(surah.ayahs.size, isEn)} ${tr(isEn, "আয়াত", "Ayahs")}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = readerSubText
                                 )
                             }
                         }
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { onPlaySurahAudio(surah) },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("reader_play_surah_button")
+                            ) {
+                                if (isThisSurahLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = if (isThisSurahPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isThisSurahPlaying) {
+                                            tr(isEn, "তিলাওয়াত থামান", "Pause recitation")
+                                        } else {
+                                            tr(isEn, "সূরা তিলাওয়াত শুনুন", "Play Surah recitation")
+                                        },
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                             IconButton(onClick = { showReaderSettings = !showReaderSettings }) {
-                                Icon(Icons.Default.FormatSize, contentDescription = "ফন্ট ও ডার্ক মোড", tint = readerText)
+                                Icon(
+                                    Icons.Default.FormatSize,
+                                    contentDescription = tr(isEn, "ফন্ট ও ডার্ক মোড", "Font & Dark Mode"),
+                                    tint = readerText
+                                )
                             }
                         }
                     }
@@ -147,7 +211,11 @@ fun QuranSearchScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.DarkMode, contentDescription = null, tint = readerText)
-                                Text("চোখের আরামের ডার্ক মোড", color = readerText, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    text = tr(isEn, "চোখের আরামের ডার্ক মোড", "Eye-Comfort Dark Mode"),
+                                    color = readerText,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
                             }
                             Switch(
                                 checked = quranDark,
@@ -155,7 +223,7 @@ fun QuranSearchScreen(
                             )
                         }
                         Text(
-                            text = "ফন্ট সাইজ: ${BanglaUtils.toBanglaNumber(uiState.settings.quranFontSize)}",
+                            text = "${tr(isEn, "ফন্ট সাইজ", "Font Size")}: ${BanglaUtils.formatNumber(uiState.settings.quranFontSize, isEn)}",
                             color = readerSubText,
                             style = MaterialTheme.typography.labelMedium
                         )
@@ -169,17 +237,33 @@ fun QuranSearchScreen(
             }
 
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(surah.ayahs, key = { it.number }) { ayah ->
                     val bId = "${surah.number}_${ayah.number}"
                     val isBookmarked = uiState.bookmarks.any { it.bookmarkId == bId }
+                    val isReadToday = uiState.dailyQuranReadKeys.contains(bId)
+                    val isAyahActive = audioState.surahNumber == surah.number && audioState.ayahNumber == ayah.number
+                    val isAyahPlaying = isAyahActive && audioState.isPlaying
+                    val isAyahLoading = isAyahActive && audioState.isLoading
 
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = readerCard),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ayah_card_${surah.number}_${ayah.number}"),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isAyahActive) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (quranDark) 0.28f else 0.45f)
+                            } else {
+                                readerCard
+                            }
+                        ),
+                        border = if (isAyahActive) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                         shape = RoundedCornerShape(18.dp)
                     ) {
                         Column(
@@ -191,29 +275,99 @@ fun QuranSearchScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = CircleShape
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = BanglaUtils.toBanglaNumber(ayah.number),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
+                                    Surface(
+                                        color = if (isAyahActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                                        shape = CircleShape
+                                    ) {
+                                        Text(
+                                            text = BanglaUtils.formatNumber(ayah.number, isEn),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (isAyahActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                    if (isAyahActive && (audioState.isPlaying || audioState.isLoading)) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.GraphicEq,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Text(
+                                                    text = if (isAyahLoading) tr(isEn, "লোড হচ্ছে", "Loading")
+                                                    else tr(isEn, "চলছে", "Playing"),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
-                                IconButton(
-                                    onClick = { onToggleBookmark(surah, ayah.number, ayah.arabic, ayah.bangla) },
-                                    modifier = Modifier.minimumInteractiveComponentSize()
-                                ) {
-                                    Icon(
-                                        imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                        contentDescription = "বুকমার্ক",
-                                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else readerSubText
-                                    )
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { onPlayAyahAudio(surah, ayah.number) },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("ayah_play_${surah.number}_${ayah.number}")
+                                    ) {
+                                        if (isAyahLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = if (isAyahPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                contentDescription = if (isAyahPlaying) {
+                                                    tr(isEn, "আয়াত থামান", "Pause Ayah")
+                                                } else {
+                                                    tr(isEn, "আয়াত শুনুন", "Play Ayah")
+                                                },
+                                                tint = if (isAyahActive) MaterialTheme.colorScheme.primary else readerSubText
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { onToggleAyahReadToday(surah.number, ayah.number) },
+                                        modifier = Modifier
+                                            .minimumInteractiveComponentSize()
+                                            .testTag("ayah_read_${surah.number}_${ayah.number}")
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isReadToday) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                                            contentDescription = tr(isEn, "আজকের পাঠে চিহ্নিত করুন", "Mark read for daily goal"),
+                                            tint = if (isReadToday) MaterialTheme.colorScheme.primary else readerSubText
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { onToggleBookmark(surah, ayah.number, ayah.arabic, ayah.bangla) },
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                            contentDescription = tr(isEn, "বুকমার্ক", "Bookmark"),
+                                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else readerSubText
+                                        )
+                                    }
                                 }
                             }
 
+                            // Arabic text is always preserved regardless of app language
                             Text(
                                 text = ayah.arabic,
                                 fontFamily = AmiriFontFamily,
@@ -224,8 +378,9 @@ fun QuranSearchScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
 
+                            // Translation follows app language: Bangla in bn mode, English in en mode
                             Text(
-                                text = ayah.bangla,
+                                text = ayah.translation(isEn),
                                 fontSize = uiState.settings.quranFontSize.sp,
                                 lineHeight = (uiState.settings.quranFontSize + 8).sp,
                                 color = readerSubText
@@ -234,50 +389,123 @@ fun QuranSearchScreen(
                     }
                 }
             }
+
+            if (audioState.isActive) {
+                QuranAudioPlayerBar(
+                    audioState = audioState,
+                    isEnglish = isEn,
+                    onTogglePlayPause = onToggleAudioPlayPause,
+                    onPrevious = onPreviousAudioAyah,
+                    onNext = onNextAudioAyah,
+                    onClose = onStopAudio
+                )
+            }
         }
         return
     }
 
-    // Main Quran Index + Global Search
-    LazyColumn(
+    // Main Quran Index + Search + Sticky Audio Bar
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(readerBg),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(readerBg)
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "আল-কুরআন ও অনুসন্ধান",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = readerText
-                )
-                IconButton(onClick = { onQuranDarkModeChanged(!quranDark) }) {
-                    Icon(
-                        imageVector = Icons.Default.DarkMode,
-                        contentDescription = "কুরআন ডার্ক মোড",
-                        tint = if (quranDark) MaterialTheme.colorScheme.primary else readerSubText
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = tr(isEn, "আল-কুরআন ও অনুসন্ধান", "Al-Quran & Search"),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = readerText
                     )
+                    IconButton(onClick = { onQuranDarkModeChanged(!quranDark) }) {
+                        Icon(
+                            imageVector = Icons.Default.DarkMode,
+                            contentDescription = tr(isEn, "কুরআন ডার্ক মোড", "Quran Dark Mode"),
+                            tint = if (quranDark) MaterialTheme.colorScheme.primary else readerSubText
+                        )
+                    }
                 }
             }
-        }
+
+            // Daily Quran Goal Progress Strip
+            item {
+                val goal = uiState.settings.dailyQuranGoal.coerceAtLeast(1)
+                val readCount = uiState.dailyQuranReadCount
+                val progress = (readCount.toFloat() / goal.toFloat()).coerceIn(0f, 1f)
+                Surface(
+                    color = readerCard,
+                    shape = RoundedCornerShape(14.dp),
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = tr(
+                                    isEn,
+                                    "আজকের লক্ষ্য: ${BanglaUtils.toBanglaNumber(readCount)} / ${BanglaUtils.toBanglaNumber(goal)} আয়াত",
+                                    "Today: $readCount / $goal Ayahs"
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = audioState.reciter.displayName(isEn),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = readerSubText,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                        )
+                    }
+                }
+            }
 
         item {
             OutlinedTextField(
                 value = uiState.globalSearchQuery,
                 onValueChange = onSearchChanged,
-                placeholder = { Text("কুরআনের আয়াত (বাংলা) বা নামাজের লগ খুঁজুন...") },
+                placeholder = {
+                    Text(
+                        tr(
+                            isEn,
+                            "কুরআনের সূরা বা আয়াত খুঁজুন...",
+                            "Search Quran Surahs or verses..."
+                        )
+                    )
+                },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (uiState.globalSearchQuery.isNotEmpty()) {
                         IconButton(onClick = { onSearchChanged("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "মুছুন")
+                            Icon(Icons.Default.Clear, contentDescription = tr(isEn, "মুছুন", "Clear"))
                         }
                     }
                 },
@@ -292,7 +520,7 @@ fun QuranSearchScreen(
         if (uiState.globalSearchQuery.isNotBlank()) {
             item {
                 Text(
-                    text = "কুরআনের ফলাফল (${BanglaUtils.toBanglaNumber(uiState.quranSearchResults.size)})",
+                    text = "${tr(isEn, "কুরআনের ফলাফল", "Quran Results")} (${BanglaUtils.formatNumber(uiState.quranSearchResults.size, isEn)})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -301,7 +529,11 @@ fun QuranSearchScreen(
             if (uiState.quranSearchResults.isEmpty()) {
                 item {
                     Text(
-                        text = "এই শব্দে কোনো কুরআনের আয়াত পাওয়া যায়নি।",
+                        text = tr(
+                            isEn,
+                            "এই শব্দে কোনো কুরআনের আয়াত পাওয়া যায়নি।",
+                            "No Quran verses matched your search."
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = readerSubText
                     )
@@ -320,7 +552,7 @@ fun QuranSearchScreen(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "${hit.surah.nameBangla} • আয়াত ${BanglaUtils.toBanglaNumber(hit.ayah.number)}",
+                                text = "${hit.surah.displayName(isEn)} • ${tr(isEn, "আয়াত", "Ayah")} ${BanglaUtils.formatNumber(hit.ayah.number, isEn)}",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -334,62 +566,10 @@ fun QuranSearchScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Text(
-                                text = hit.ayah.bangla,
+                                text = hit.ayah.translation(isEn),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = readerSubText
                             )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "সংরক্ষিত নামাজের লগ ফলাফল (${BanglaUtils.toBanglaNumber(uiState.logSearchResults.size)})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            if (uiState.logSearchResults.isEmpty()) {
-                item {
-                    Text(
-                        text = "কোনো নামাজের লগ বা নোট মেলেনি।",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = readerSubText
-                    )
-                }
-            } else {
-                items(uiState.logSearchResults, key = { it.dateKey }) { log ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToTrackerDate(log.dateKey) },
-                        colors = CardDefaults.cardColors(containerColor = readerCard),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Default.Mosque, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = BanglaUtils.formatDateKeyBangla(log.dateKey),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = readerText
-                                )
-                                val summary = WaqtType.entries.joinToString(" • ") {
-                                    "${it.titleBn}: ${log.statusFor(it).titleBn}"
-                                }
-                                Text(text = summary, style = MaterialTheme.typography.labelSmall, color = readerSubText)
-                                if (log.note.isNotBlank()) {
-                                    Text(text = "নোট: ${log.note}", style = MaterialTheme.typography.bodyMedium, color = readerText)
-                                }
-                            }
                         }
                     }
                 }
@@ -400,13 +580,17 @@ fun QuranSearchScreen(
                     FilterChip(
                         selected = !showOnlyBookmarks,
                         onClick = { showOnlyBookmarks = false },
-                        label = { Text("সকল সূরা (${BanglaUtils.toBanglaNumber(uiState.surahs.size)})") },
-                        leadingIcon = { Icon(Icons.Default.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        label = {
+                            Text("${tr(isEn, "সকল সূরা", "All Surahs")} (${BanglaUtils.formatNumber(uiState.surahs.size, isEn)})")
+                        },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp)) }
                     )
                     FilterChip(
                         selected = showOnlyBookmarks,
                         onClick = { showOnlyBookmarks = true },
-                        label = { Text("বুকমার্ক (${BanglaUtils.toBanglaNumber(uiState.bookmarks.size)})") },
+                        label = {
+                            Text("${tr(isEn, "বুকমার্ক", "Bookmarks")} (${BanglaUtils.formatNumber(uiState.bookmarks.size, isEn)})")
+                        },
                         leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp)) }
                     )
                 }
@@ -427,13 +611,24 @@ fun QuranSearchScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.BookmarkBorder, contentDescription = null, modifier = Modifier.size(36.dp), tint = readerSubText)
-                                Text("এখনো কোনো আয়াত বুকমার্ক করা হয়নি।", color = readerSubText)
+                                Text(
+                                    text = tr(
+                                        isEn,
+                                        "এখনো কোনো আয়াত বুকমার্ক করা হয়নি।",
+                                        "No bookmarked verses yet."
+                                    ),
+                                    color = readerSubText
+                                )
                             }
                         }
                     }
                 } else {
                     items(uiState.bookmarks, key = { it.bookmarkId }) { bm ->
                         val matchingSurah = uiState.surahs.find { it.number == bm.surahNumber }
+                        val matchingAyah = matchingSurah?.ayahs?.find { it.number == bm.ayahNumber }
+                        val displaySurahName = matchingSurah?.displayName(isEn) ?: bm.surahNameBn
+                        val displayTranslation = matchingAyah?.translation(isEn) ?: bm.banglaText
+
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -451,16 +646,21 @@ fun QuranSearchScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "${bm.surahNameBn} • আয়াত ${BanglaUtils.toBanglaNumber(bm.ayahNumber)}",
+                                        text = "$displaySurahName • ${tr(isEn, "আয়াত", "Ayah")} ${BanglaUtils.formatNumber(bm.ayahNumber, isEn)}",
                                         style = MaterialTheme.typography.titleMedium,
                                         color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f)
                                     )
                                     if (matchingSurah != null) {
                                         IconButton(onClick = {
                                             onToggleBookmark(matchingSurah, bm.ayahNumber, bm.arabicText, bm.banglaText)
                                         }) {
-                                            Icon(Icons.Default.Bookmark, contentDescription = "বুকমার্ক সরান", tint = MaterialTheme.colorScheme.primary)
+                                            Icon(
+                                                Icons.Default.Bookmark,
+                                                contentDescription = tr(isEn, "বুকমার্ক সরান", "Remove bookmark"),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
                                         }
                                     }
                                 }
@@ -473,7 +673,7 @@ fun QuranSearchScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
-                                    text = bm.banglaText,
+                                    text = displayTranslation,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = readerSubText
                                 )
@@ -483,6 +683,8 @@ fun QuranSearchScreen(
                 }
             } else {
                 items(uiState.surahs, key = { it.number }) { surah ->
+                    val isSurahPlaying = audioState.surahNumber == surah.number && audioState.isPlaying
+                    val isSurahLoading = audioState.surahNumber == surah.number && audioState.isLoading
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -495,7 +697,7 @@ fun QuranSearchScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -511,7 +713,7 @@ fun QuranSearchScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = BanglaUtils.toBanglaNumber(surah.number),
+                                        text = BanglaUtils.formatNumber(surah.number, isEn),
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -519,26 +721,208 @@ fun QuranSearchScreen(
                                 }
                                 Column {
                                     Text(
-                                        text = surah.nameBangla,
+                                        text = surah.displayName(isEn),
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = readerText
                                     )
                                     Text(
-                                        text = "${surah.revelationTypeBn} • ${BanglaUtils.toBanglaNumber(surah.ayahs.size)} আয়াত",
+                                        text = "${surah.revelationType(isEn)} • ${BanglaUtils.formatNumber(surah.ayahs.size, isEn)} ${tr(isEn, "আয়াত", "Ayahs")}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = readerSubText
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = surah.nameArabic,
-                                fontFamily = AmiriFontFamily,
-                                fontSize = 20.sp,
-                                color = MaterialTheme.colorScheme.primary
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = surah.nameArabic,
+                                    fontFamily = AmiriFontFamily,
+                                    fontSize = 19.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                IconButton(
+                                    onClick = {
+                                        selectedSurah = surah
+                                        onPlaySurahAudio(surah)
+                                    },
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("surah_play_${surah.number}")
+                                ) {
+                                    if (isSurahLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (isSurahPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            contentDescription = if (isSurahPlaying) {
+                                                tr(isEn, "থামান", "Pause")
+                                            } else {
+                                                tr(isEn, "তিলাওয়াত শুনুন", "Play recitation")
+                                            },
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+
+        if (audioState.isActive) {
+            QuranAudioPlayerBar(
+                audioState = audioState,
+                isEnglish = isEn,
+                onTogglePlayPause = onToggleAudioPlayPause,
+                onPrevious = onPreviousAudioAyah,
+                onNext = onNextAudioAyah,
+                onClose = onStopAudio
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuranAudioPlayerBar(
+    audioState: QuranAudioState,
+    isEnglish: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit
+) {
+    val errorMsg = audioState.errorMessage(isEnglish)
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("quran_audio_player_bar")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (errorMsg != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WifiOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = errorMsg,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${audioState.surahTitle(isEnglish)} • ${tr(isEnglish, "আয়াত", "Ayah")} ${BanglaUtils.formatNumber(audioState.ayahNumber ?: 0, isEnglish)}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = audioState.reciter.displayName(isEnglish),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onPrevious,
+                        enabled = audioState.canGoPrevious,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("audio_prev_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = tr(isEnglish, "আগের আয়াত", "Previous Ayah")
+                        )
+                    }
+                    IconButton(
+                        onClick = onTogglePlayPause,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .background(MaterialTheme.colorScheme.primary, CircleShape)
+                            .testTag("audio_play_pause_button")
+                    ) {
+                        if (audioState.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (audioState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (audioState.isPlaying) {
+                                    tr(isEnglish, "বিরতি", "Pause")
+                                } else {
+                                    tr(isEnglish, "চালু করুন", "Play")
+                                },
+                                tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
+                    }
+                    IconButton(
+                        onClick = onNext,
+                        enabled = audioState.canGoNext,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("audio_next_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = tr(isEnglish, "পরের আয়াত", "Next Ayah")
+                        )
+                    }
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("audio_stop_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = tr(isEnglish, "বন্ধ করুন", "Close player")
+                        )
                     }
                 }
             }

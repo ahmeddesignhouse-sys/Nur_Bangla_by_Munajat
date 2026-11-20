@@ -6,12 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.location.Address
-import android.location.Geocoder
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,19 +30,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WbTwilight
 import androidx.compose.material3.Card
@@ -56,15 +56,15 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -90,23 +91,18 @@ import com.example.R
 import com.example.data.model.AccentTheme
 import com.example.data.model.AdhanAlertMode
 import com.example.data.model.AsrMethod
-import com.example.data.model.BangladeshiDistricts
 import com.example.data.model.BdDistrict
 import com.example.data.model.CalculationMethod
 import com.example.data.model.ThemeMode
 import com.example.data.model.WaqtType
 import com.example.ui.NoorUiState
+import com.example.ui.components.DistrictPickerSheet
 import com.example.ui.theme.StatusForbiddenColor
 import com.example.util.BanglaUtils
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import java.util.Locale
-import kotlin.coroutines.resume
+import com.example.util.LocalAppLanguage
+import com.example.util.LocationHelper
+import com.example.util.isEnglishLang
+import com.example.util.tr
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,57 +110,41 @@ fun HomeDashboardScreen(
     uiState: NoorUiState,
     onSelectDistrict: (BdDistrict) -> Unit,
     onGpsResolved: (Double, Double, String?, Boolean) -> Unit,
+    onTimezoneChanged: () -> Unit,
     onAsrMethodChanged: (AsrMethod) -> Unit,
     onCalculationMethodChanged: (CalculationMethod) -> Unit,
     onWaqtAlertModeChanged: (WaqtType, AdhanAlertMode) -> Unit,
     onThemeModeChanged: (ThemeMode) -> Unit,
     onAccentThemeChanged: (AccentTheme) -> Unit,
+    onOpenHijriCalendar: () -> Unit,
+    onOpenRamadanCalendar: () -> Unit,
+    onOpenDailyInspiration: () -> Unit,
+    onOpenQuranTab: () -> Unit,
+    onRamadanModeChanged: (Boolean) -> Unit,
     onStatusMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val isEn = isEnglishLang(LocalAppLanguage.current)
+
     var showDistrictSheet by remember { mutableStateOf(false) }
     var showMethodSheet by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var alertDialogWaqt by remember { mutableStateOf<WaqtType?>(null) }
 
     val fetchGps: (Boolean) -> Unit = { showToast ->
-        try {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
-                .addOnSuccessListener { location ->
-                    if (location != null) {
-                        scope.launch {
-                            val place = reverseGeocodeCityCountry(context, location.latitude, location.longitude)
-                            onGpsResolved(location.latitude, location.longitude, place, showToast)
-                        }
-                    } else {
-                        client.lastLocation.addOnSuccessListener { last ->
-                            if (last != null) {
-                                scope.launch {
-                                    val place = reverseGeocodeCityCountry(context, last.latitude, last.longitude)
-                                    onGpsResolved(last.latitude, last.longitude, place, showToast)
-                                }
-                            } else if (showToast) {
-                                onStatusMessage("জিপিএস লোকেশন পাওয়া যায়নি; জেলা তালিকা থেকে বেছে নিন।")
-                            }
-                        }
-                    }
-                }
-                .addOnFailureListener {
-                    if (showToast) {
-                        onStatusMessage("জিপিএস লোকেশন নিতে সমস্যা হয়েছে।")
-                    }
-                }
-        } catch (_: SecurityException) {
-            if (showToast) {
-                onStatusMessage("লোকেশন অনুমতি প্রয়োজন।")
-            }
-        }
+        LocationHelper.fetchCurrentGpsLocation(
+            context = context,
+            scope = scope,
+            isEnglish = isEn,
+            showToast = showToast,
+            onResolved = onGpsResolved,
+            onError = onStatusMessage
+        )
     }
 
-    // Automatically detect GPS on initial launch if location permission is already granted
+    // Auto-detect GPS on launch if permission is already granted
     LaunchedEffect(Unit) {
         val hasPerm = ContextCompat.checkSelfPermission(
             context,
@@ -175,8 +155,8 @@ fun HomeDashboardScreen(
         }
     }
 
-    // Automatically refresh GPS whenever user returns to app or system timezone changes while traveling
-    DisposableEffect(lifecycleOwner, uiState.settings.useGps) {
+    // Refresh GPS on resume (when GPS is ON) and react immediately to device timezone changes
+    DisposableEffect(lifecycleOwner, uiState.settings.useGps, isEn) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && uiState.settings.useGps) {
                 val hasPerm = ContextCompat.checkSelfPermission(
@@ -198,14 +178,8 @@ fun HomeDashboardScreen(
                 ) == PackageManager.PERMISSION_GRANTED
                 if (hasPerm && uiState.settings.useGps) {
                     fetchGps(false)
-                } else {
-                    onGpsResolved(
-                        uiState.activeLatitude,
-                        uiState.activeLongitude,
-                        uiState.settings.gpsLocationLabel,
-                        false
-                    )
                 }
+                onTimezoneChanged()
             }
         }
         val filter = IntentFilter(Intent.ACTION_TIMEZONE_CHANGED)
@@ -226,7 +200,13 @@ fun HomeDashboardScreen(
         if (granted) {
             fetchGps(true)
         } else {
-            onStatusMessage("লোকেশন অনুমতি দেওয়া হয়নি; ৬৪ জেলার তালিকা থেকে জেলা নির্বাচন করুন।")
+            onStatusMessage(
+                tr(
+                    isEn,
+                    "লোকেশন অনুমতি দেওয়া হয়নি; ৬৪ জেলার তালিকা থেকে জেলা নির্বাচন করুন।",
+                    "Location permission denied; choose a district from the 64-district list."
+                )
+            )
             showDistrictSheet = true
         }
     }
@@ -261,7 +241,7 @@ fun HomeDashboardScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.LocationOn,
-                            contentDescription = "লোকেশন নির্বাচন",
+                            contentDescription = tr(isEn, "লোকেশন নির্বাচন", "Select location"),
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Column {
@@ -271,7 +251,7 @@ fun HomeDashboardScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "${uiState.locationSubtitle} • পরিবর্তন",
+                                text = "${uiState.locationSubtitle} • ${tr(isEn, "পরিবর্তন", "Change")}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -290,7 +270,7 @@ fun HomeDashboardScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Palette,
-                        contentDescription = "থিম পরিবর্তন",
+                        contentDescription = tr(isEn, "থিম পরিবর্তন", "Change theme"),
                         tint = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 }
@@ -316,7 +296,7 @@ fun HomeDashboardScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.GpsFixed,
-                        contentDescription = "অটো জিপিএস লোকেশন",
+                        contentDescription = tr(isEn, "অটো জিপিএস লোকেশন", "Auto GPS location"),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
@@ -333,7 +313,7 @@ fun HomeDashboardScreen(
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.img_islamic_hero),
-                    contentDescription = "পরবর্তী নামাজের সময়",
+                    contentDescription = tr(isEn, "পরবর্তী নামাজের সময়", "Next prayer time"),
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -365,11 +345,11 @@ fun HomeDashboardScreen(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             val activeLabel = if (uiState.currentWaqt != null && schedule != null) {
-                                val startStr = BanglaUtils.formatTime12hBangla(schedule.minuteFor(uiState.currentWaqt))
-                                val endStr = BanglaUtils.formatTime12hBangla(schedule.endMinuteFor(uiState.currentWaqt))
-                                "চলমান: ${uiState.currentWaqt.titleBn} • $startStr - $endStr"
+                                val startStr = BanglaUtils.formatTime12h(schedule.minuteFor(uiState.currentWaqt), isEn)
+                                val endStr = BanglaUtils.formatTime12h(schedule.endMinuteFor(uiState.currentWaqt), isEn)
+                                "${tr(isEn, "চলমান", "Now")}: ${uiState.currentWaqt.title(isEn)} • $startStr - $endStr"
                             } else {
-                                "নিষিদ্ধ/বিরতি সময়"
+                                tr(isEn, "নিষিদ্ধ/বিরতি সময়", "Forbidden / Interval")
                             }
                             Text(
                                 text = activeLabel,
@@ -391,7 +371,8 @@ fun HomeDashboardScreen(
                             ) {
                                 Icon(Icons.Default.Tune, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
                                 Text(
-                                    text = schedule?.appliedMethodTitleBn ?: "ইসলামিক ফাউন্ডেশন",
+                                    text = schedule?.appliedMethodTitle(isEn)
+                                        ?: CalculationMethod.BANGLADESH_KARACHI.title(isEn),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White
                                 )
@@ -403,9 +384,9 @@ fun HomeDashboardScreen(
                     Column {
                         Text(
                             text = if (next != null) {
-                                "পরবর্তী ওয়াক্ত: ${next.waqt.titleBn} (${BanglaUtils.formatTime12hBangla(next.targetMinuteOfDay)})"
+                                "${tr(isEn, "পরবর্তী ওয়াক্ত", "Next Prayer")}: ${next.waqt.title(isEn)} (${BanglaUtils.formatTime12h(next.targetMinuteOfDay, isEn)})"
                             } else {
-                                "সময়সূচী লোড হচ্ছে..."
+                                tr(isEn, "সময়সূচী লোড হচ্ছে...", "Loading schedule...")
                             },
                             style = MaterialTheme.typography.titleMedium,
                             color = Color.White.copy(alpha = 0.95f)
@@ -413,16 +394,20 @@ fun HomeDashboardScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (next != null) {
-                                BanglaUtils.formatCountdownBangla(next.remainingSeconds)
+                                BanglaUtils.formatCountdown(next.remainingSeconds, isEn)
                             } else {
-                                "০০:০০:০০"
+                                if (isEn) "00:00:00" else "০০:০০:০০"
                             },
                             style = MaterialTheme.typography.displayLarge,
                             color = Color(0xFFFFD875),
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "বাকি সময় (ঘণ্টা : মিনিট : সেকেন্ড)",
+                            text = tr(
+                                isEn,
+                                "বাকি সময় (ঘণ্টা : মিনিট : সেকেন্ড)",
+                                "Time remaining (Hours : Minutes : Seconds)"
+                            ),
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.78f)
                         )
@@ -431,10 +416,135 @@ fun HomeDashboardScreen(
             }
         }
 
-        // Triple Date Strip (Hijri, Bangla, English)
+        // Ramadan Mode / Live Sehri & Iftar Countdown Banner (shown during Ramadan or when Ramadan Mode is ON)
+        if (schedule != null && (uiState.settings.ramadanMode || uiState.isCurrentlyRamadan)) {
+            item {
+                val cd = uiState.sehriIftarCountdown
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenRamadanCalendar)
+                        .testTag("open_ramadan_from_home"),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NightsStay,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = tr(isEn, "রমজান সাহরি ও ইফতার", "Ramadan Sehri & Iftar"),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = tr(isEn, "৩০ দিন", "30 Days"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (cd != null) {
+                            Text(
+                                text = cd.label(isEn),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.testTag("home_ramadan_countdown")
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = tr(isEn, "সাহরি শেষ", "Sehri Ends"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = BanglaUtils.formatTime12h(schedule.sehriEndMinute, isEn),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(
+                                        text = tr(isEn, "ইফতার", "Iftar"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = BanglaUtils.formatTime12h(schedule.iftarMinute, isEn),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Triple Date Strip (Hijri, Bangla, English) — Tap to open Hijri Calendar
         item {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenHijriCalendar)
+                    .testTag("open_hijri_calendar_home"),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(18.dp),
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -444,32 +554,272 @@ fun HomeDashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = uiState.hijriDateBn,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = uiState.hijriDate,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = tr(isEn, "ক্যালেন্ডার", "Calendar"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = tr(isEn, "হিজরি ক্যালেন্ডার খুলুন", "Open Hijri Calendar"),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                     Text(
-                        text = "বাংলা: ${uiState.banglaDateBn}",
+                        text = "${tr(isEn, "বাংলা", "Bangla")}: ${uiState.banglaDate}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "ইংরেজি: ${uiState.englishDateBn}",
+                        text = "${tr(isEn, "ইংরেজি", "Date")}: ${uiState.englishDate}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        // Daily Quran Goal Progress Card (Resets Daily)
+        item {
+            val goal = uiState.settings.dailyQuranGoal.coerceAtLeast(1)
+            val readCount = uiState.dailyQuranReadCount
+            val progress = (readCount.toFloat() / goal.toFloat()).coerceIn(0f, 1f)
+            val completed = readCount >= goal
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenQuranTab)
+                    .testTag("home_daily_quran_goal_card"),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(18.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = tr(isEn, "দৈনিক কুরআন তিলাওয়াত লক্ষ্য", "Daily Quran Goal"),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Surface(
+                            color = if (completed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = tr(
+                                    isEn,
+                                    "আজ: ${BanglaUtils.toBanglaNumber(readCount)} / ${BanglaUtils.toBanglaNumber(goal)} আয়াত",
+                                    "Today: $readCount / $goal Ayahs"
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (completed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
+            }
+        }
+
+        // Daily Hadith + Daily Ayah Card (Rotates daily; tap for full view & 7-day archive)
+        val dailyInspiration = uiState.todayInspiration
+        if (dailyInspiration != null) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenDailyInspiration)
+                        .testTag("home_daily_inspiration_card"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = tr(isEn, "আজকের হাদিস ও আয়াত", "Hadith of the Day & Daily Ayah"),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, dailyInspiration.formatShareText(isEn))
+                                    }
+                                    try {
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                sendIntent,
+                                                tr(isEn, "শেয়ার করুন", "Share")
+                                            )
+                                        )
+                                    } catch (_: Exception) {
+                                        onStatusMessage(tr(isEn, "শেয়ার অ্যাপ পাওয়া যায়নি", "No share app available"))
+                                    }
+                                },
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("home_daily_share_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = tr(isEn, "হাদিস ও আয়াত শেয়ার করুন", "Share Daily Hadith & Ayah"),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        // Hadith preview
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = tr(isEn, "হাদিস", "HADITH"),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = dailyInspiration.hadith.meaning(isEn),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = dailyInspiration.hadith.source(isEn),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        // Ayah preview
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                text = tr(isEn, "আয়াত", "DAILY AYAH"),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = dailyInspiration.ayah.meaning(isEn),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = dailyInspiration.ayah.source(isEn),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = tr(isEn, "পূর্ণ বিবরণ ও বিগত ৭ দিন", "Full View & Last 7 Days"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -482,7 +832,7 @@ fun HomeDashboardScreen(
             ) {
                 item {
                     Text(
-                        text = "আসর:",
+                        text = tr(isEn, "আসর:", "Asr:"),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -491,7 +841,7 @@ fun HomeDashboardScreen(
                     FilterChip(
                         selected = uiState.settings.asrMethod == method,
                         onClick = { onAsrMethodChanged(method) },
-                        label = { Text(if (method == AsrMethod.HANAFI) "হানাফি" else "শাফেয়ী") }
+                        label = { Text(method.shortTitle(isEn)) }
                     )
                 }
                 item {
@@ -499,7 +849,20 @@ fun HomeDashboardScreen(
                         selected = false,
                         onClick = { showMethodSheet = true },
                         leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        label = { Text("পদ্ধতি: ${uiState.settings.calculationMethod.titleBn}") }
+                        label = {
+                            Text(
+                                "${tr(isEn, "পদ্ধতি", "Method")}: ${uiState.settings.calculationMethod.title(isEn)}"
+                            )
+                        }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = uiState.settings.ramadanMode,
+                        onClick = { onRamadanModeChanged(!uiState.settings.ramadanMode) },
+                        leadingIcon = { Icon(Icons.Default.NightsStay, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        label = { Text(tr(isEn, "রমজান মোড", "Ramadan Mode")) },
+                        modifier = Modifier.testTag("home_ramadan_mode_chip")
                     )
                 }
             }
@@ -515,14 +878,14 @@ fun HomeDashboardScreen(
                     MiniSolarCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.Restaurant,
-                        label = "সাহরি শেষ",
-                        timeText = BanglaUtils.formatTime12hBangla(schedule.sehriEndMinute)
+                        label = tr(isEn, "সাহরি শেষ", "Sahri Ends"),
+                        timeText = BanglaUtils.formatTime12h(schedule.sehriEndMinute, isEn)
                     )
                     MiniSolarCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.Restaurant,
-                        label = "ইফতার",
-                        timeText = BanglaUtils.formatTime12hBangla(schedule.iftarMinute)
+                        label = tr(isEn, "ইফতার", "Iftar"),
+                        timeText = BanglaUtils.formatTime12h(schedule.iftarMinute, isEn)
                     )
                 }
             }
@@ -534,14 +897,14 @@ fun HomeDashboardScreen(
                     MiniSolarCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.WbSunny,
-                        label = "সূর্যোদয়",
-                        timeText = BanglaUtils.formatTime12hBangla(schedule.sunriseMinute)
+                        label = tr(isEn, "সূর্যোদয়", "Sunrise"),
+                        timeText = BanglaUtils.formatTime12h(schedule.sunriseMinute, isEn)
                     )
                     MiniSolarCard(
                         modifier = Modifier.weight(1f),
                         icon = Icons.Default.WbTwilight,
-                        label = "সূর্যাস্ত",
-                        timeText = BanglaUtils.formatTime12hBangla(schedule.sunsetMinute)
+                        label = tr(isEn, "সূর্যাস্ত", "Sunset"),
+                        timeText = BanglaUtils.formatTime12h(schedule.sunsetMinute, isEn)
                     )
                 }
             }
@@ -549,7 +912,11 @@ fun HomeDashboardScreen(
             // 5 Daily Prayers List (Start & End Time per Waqt)
             item {
                 Text(
-                    text = "পাঁচ ওয়াক্ত নামাজের শুরু ও শেষ সময়",
+                    text = tr(
+                        isEn,
+                        "পাঁচ ওয়াক্ত নামাজের শুরু ও শেষ সময়",
+                        "5 Daily Prayers — Start & End Times"
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 4.dp)
@@ -560,8 +927,8 @@ fun HomeDashboardScreen(
                 val isCurrent = uiState.currentWaqt == waqt
                 val isNext = uiState.nextWaqtInfo?.waqt == waqt && !uiState.nextWaqtInfo.isTomorrow
                 val alertMode = uiState.settings.alertConfig.modeFor(waqt)
-                val startTimeStr = BanglaUtils.formatTime12hBangla(schedule.minuteFor(waqt))
-                val endTimeStr = BanglaUtils.formatTime12hBangla(schedule.endMinuteFor(waqt))
+                val startTimeStr = BanglaUtils.formatTime12h(schedule.minuteFor(waqt), isEn)
+                val endTimeStr = BanglaUtils.formatTime12h(schedule.endMinuteFor(waqt), isEn)
 
                 Card(
                     modifier = Modifier
@@ -595,7 +962,7 @@ fun HomeDashboardScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
-                                        text = waqt.titleBn,
+                                        text = waqt.title(isEn),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = if (isCurrent) {
@@ -610,7 +977,7 @@ fun HomeDashboardScreen(
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
-                                                text = "চলমান",
+                                                text = tr(isEn, "চলমান", "Now"),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onPrimary,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -622,7 +989,7 @@ fun HomeDashboardScreen(
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
-                                                text = "পরবর্তী",
+                                                text = tr(isEn, "পরবর্তী", "Next"),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -631,7 +998,7 @@ fun HomeDashboardScreen(
                                     }
                                 }
                                 Text(
-                                    text = waqt.rakatInfoBn,
+                                    text = waqt.rakatInfo(isEn),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isCurrent) {
                                         MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -647,7 +1014,11 @@ fun HomeDashboardScreen(
                             ) {
                                 Icon(
                                     imageVector = alertIconFor(alertMode),
-                                    contentDescription = "${waqt.titleBn} আযান সেটিংস",
+                                    contentDescription = tr(
+                                        isEn,
+                                        "${waqt.titleBn} আযান সেটিংস",
+                                        "${waqt.titleEn} Adhan settings"
+                                    ),
                                     tint = if (alertMode == AdhanAlertMode.SILENT) {
                                         MaterialTheme.colorScheme.onSurfaceVariant
                                     } else {
@@ -675,7 +1046,7 @@ fun HomeDashboardScreen(
                             ) {
                                 Column {
                                     Text(
-                                        text = "ওয়াক্ত শুরু",
+                                        text = tr(isEn, "ওয়াক্ত শুরু", "Starts"),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.SemiBold
@@ -689,7 +1060,7 @@ fun HomeDashboardScreen(
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text(
-                                        text = "ওয়াক্ত শেষ",
+                                        text = tr(isEn, "ওয়াক্ত শেষ", "Ends"),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.secondary,
                                         fontWeight = FontWeight.SemiBold
@@ -730,7 +1101,11 @@ fun HomeDashboardScreen(
                                 tint = StatusForbiddenColor
                             )
                             Text(
-                                text = "নামাজের নিষিদ্ধ (মাকরুহ) সময়সমূহ",
+                                text = tr(
+                                    isEn,
+                                    "নামাজের নিষিদ্ধ (মাকরুহ) সময়সমূহ",
+                                    "Forbidden (Makruh) Prayer Times"
+                                ),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = StatusForbiddenColor
@@ -742,12 +1117,13 @@ fun HomeDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = window.labelBn,
+                                    text = window.label(isEn),
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    text = "${BanglaUtils.formatTime12hBangla(window.startMinute)} - ${BanglaUtils.formatTime12hBangla(window.endMinute)}",
+                                    text = "${BanglaUtils.formatTime12h(window.startMinute, isEn)} - ${BanglaUtils.formatTime12h(window.endMinute, isEn)}",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = StatusForbiddenColor
@@ -780,7 +1156,11 @@ fun HomeDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "নামাজ গণনা পদ্ধতি নির্বাচন করুন",
+                    text = tr(
+                        isEn,
+                        "নামাজ গণনা পদ্ধতি নির্বাচন করুন",
+                        "Select Prayer Calculation Method"
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -805,9 +1185,13 @@ fun HomeDashboardScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(method.titleBn, style = MaterialTheme.typography.titleMedium)
+                            Text(method.title(isEn), style = MaterialTheme.typography.titleMedium)
                             if (selected) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "নির্বাচিত", tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = tr(isEn, "নির্বাচিত", "Selected"),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -827,7 +1211,11 @@ fun HomeDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "${waqt.titleBn} ওয়াক্তের অ্যালার্ট মোড",
+                    text = tr(
+                        isEn,
+                        "${waqt.titleBn} ওয়াক্তের অ্যালার্ট মোড",
+                        "${waqt.titleEn} Alert Mode"
+                    ),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -857,16 +1245,21 @@ fun HomeDashboardScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(alertIconFor(mode), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 Column {
-                                    Text(mode.titleBn, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                    Text(mode.descriptionBn, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(mode.title(isEn), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(mode.description(isEn), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             if (selected) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = "নির্বাচিত", tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = tr(isEn, "নির্বাচিত", "Selected"),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -885,7 +1278,7 @@ fun HomeDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "অ্যাপের থিম নির্বাচন করুন",
+                    text = tr(isEn, "অ্যাপের থিম নির্বাচন করুন", "Choose App Theme"),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -897,12 +1290,15 @@ fun HomeDashboardScreen(
                         FilterChip(
                             selected = uiState.settings.themeMode == mode,
                             onClick = { onThemeModeChanged(mode) },
-                            label = { Text(mode.titleBn, style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(mode.title(isEn), style = MaterialTheme.typography.labelSmall) },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                Text("রঙের থিম (৬টি):", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = tr(isEn, "রঙের থিম (৬টি):", "Color Themes (6):"),
+                    style = MaterialTheme.typography.labelLarge
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     AccentTheme.entries.chunked(3).forEach { rowThemes ->
                         Row(
@@ -945,7 +1341,7 @@ fun HomeDashboardScreen(
                                             )
                                         }
                                         Text(
-                                            text = accent.titleBn,
+                                            text = accent.title(isEn),
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                             maxLines = 1
@@ -959,51 +1355,6 @@ fun HomeDashboardScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
-    }
-}
-
-private suspend fun reverseGeocodeCityCountry(
-    context: Context,
-    lat: Double,
-    lon: Double
-): String? = withContext(Dispatchers.IO) {
-    try {
-        if (!Geocoder.isPresent()) return@withContext null
-        val locales = listOf(Locale("bn", "BD"), Locale.ENGLISH)
-        for (locale in locales) {
-            val geocoder = Geocoder(context, locale)
-            val first: Address? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                withTimeoutOrNull(4000L) {
-                    suspendCancellableCoroutine { cont ->
-                        geocoder.getFromLocation(lat, lon, 1, object : Geocoder.GeocodeListener {
-                            override fun onGeocode(addresses: MutableList<Address>) {
-                                if (cont.isActive) cont.resume(addresses.firstOrNull())
-                            }
-
-                            override fun onError(errorMessage: String?) {
-                                if (cont.isActive) cont.resume(null)
-                            }
-                        })
-                    }
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                geocoder.getFromLocation(lat, lon, 1)?.firstOrNull()
-            }
-            if (first != null) {
-                val city = first.locality ?: first.subAdminArea ?: first.adminArea
-                val country = first.countryName
-                val joined = listOfNotNull(city, country)
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .distinct()
-                    .joinToString(", ")
-                if (joined.isNotBlank()) return@withContext joined
-            }
-        }
-        null
-    } catch (_: Exception) {
-        null
     }
 }
 
@@ -1046,99 +1397,8 @@ private fun MiniSolarCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DistrictPickerSheet(
-    selectedDistrictId: String,
-    onSelect: (BdDistrict) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var searchQuery by remember { mutableStateOf("") }
-    val filtered = remember(searchQuery) {
-        if (searchQuery.isBlank()) BangladeshiDistricts.ALL_64
-        else BangladeshiDistricts.ALL_64.filter {
-            it.nameBn.contains(searchQuery.trim(), ignoreCase = true) ||
-                it.divisionBn.contains(searchQuery.trim(), ignoreCase = true) ||
-                it.id.contains(searchQuery.trim(), ignoreCase = true)
-        }
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(520.dp)
-                .padding(horizontal = 16.dp)
-        ) {
-            Text(
-                text = "বাংলাদেশের ৬৪ জেলা নির্বাচন করুন",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("জেলার নাম বা বিভাগ লিখুন (যেমন: ঢাকা, সিলেট)") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(filtered, key = { it.id }) { district ->
-                    val isSelected = district.id == selectedDistrictId
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surface
-                            )
-                            .clickable { onSelect(district) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = district.nameBn,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "${district.divisionBn} বিভাগ",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "নির্বাচিত",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                }
-            }
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Text("বন্ধ করুন")
-            }
-        }
-    }
-}
-
 fun alertIconFor(mode: AdhanAlertMode): ImageVector = when (mode) {
-    AdhanAlertMode.FULL_ADHAN -> Icons.Default.VolumeUp
+    AdhanAlertMode.FULL_ADHAN -> Icons.AutoMirrored.Filled.VolumeUp
     AdhanAlertMode.BEEP -> Icons.Default.NotificationsActive
     AdhanAlertMode.VIBRATE -> Icons.Default.Vibration
     AdhanAlertMode.SILENT -> Icons.Default.NotificationsOff
