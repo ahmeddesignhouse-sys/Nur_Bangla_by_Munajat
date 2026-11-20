@@ -55,13 +55,37 @@ class AdhanPlaybackService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var progressJob: Job? = null
+    private var hasEnteredForeground: Boolean = false
+    private var latestStartId: Int = -1
+
+    override fun onCreate() {
+        super.onCreate()
+        isServiceRunning = true
+        hasEnteredForeground = false
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
+        ensurePlaybackChannel(this)
+
         when (intent?.action) {
             ACTION_STOP -> {
-                stopPlaybackAndSelf()
+                // If startForegroundService() was previously called on this ServiceRecord,
+                // Android requires startForeground() before stopSelf() or it throws
+                // ForegroundServiceDidNotStartInTimeException.
+                if (!hasEnteredForeground) {
+                    promoteToForeground(
+                        buildOngoingNotification(
+                            waqt = _playbackState.value.waqt,
+                            voice = _playbackState.value.voice,
+                            isEnglish = _playbackState.value.isEnglish,
+                            isTestMode = _playbackState.value.isTestMode
+                        )
+                    )
+                }
+                stopPlaybackAndSelf(startId)
                 return START_NOT_STICKY
             }
             ACTION_PLAY -> {
@@ -69,22 +93,37 @@ class AdhanPlaybackService : Service() {
                 val voice = AdhanVoice.safeValueOf(intent.getStringExtra(EXTRA_VOICE_NAME))
                 val isEnglish = intent.getBooleanExtra(EXTRA_IS_ENGLISH, false)
                 val isTestMode = intent.getBooleanExtra(EXTRA_IS_TEST_MODE, false)
-                beginFullAdhanPlayback(waqt, voice, isEnglish, isTestMode)
+
+                // Always promote to foreground IMMEDIATELY before any media/audio work
+                promoteToForeground(buildOngoingNotification(waqt, voice, isEnglish, isTestMode))
+
+                if (pendingStopRequested) {
+                    pendingStopRequested = false
+                    stopPlaybackAndSelf(startId)
+                    return START_NOT_STICKY
+                }
+
+                beginFullAdhanPlayback(waqt, voice, isEnglish, isTestMode, startId)
+                return START_NOT_STICKY
+            }
+            else -> {
+                if (!hasEnteredForeground) {
+                    promoteToForeground(
+                        buildOngoingNotification(
+                            waqt = _playbackState.value.waqt,
+                            voice = _playbackState.value.voice,
+                            isEnglish = _playbackState.value.isEnglish,
+                            isTestMode = _playbackState.value.isTestMode
+                        )
+                    )
+                }
+                stopPlaybackAndSelf(startId)
+                return START_NOT_STICKY
             }
         }
-        return START_NOT_STICKY
     }
 
-    private fun beginFullAdhanPlayback(
-        waqt: WaqtType,
-        voice: AdhanVoice,
-        isEnglish: Boolean,
-        isTestMode: Boolean
-    ) {
-        releasePlaybackResources()
-        ensurePlaybackChannel(this)
-
-        val notification = buildOngoingNotification(waqt, voice, isEnglish, isTestMode)
+    private fun promoteToForeground(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -94,33 +133,46 @@ class AdhanPlaybackService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        hasEnteredForeground = true
+    }
 
+    private fun beginFullAdhanPlayback(
+        waqt: WaqtType,
+        voice: AdhanVoice,
+        isEnglish: Boolean,
+        isTestMode: Boolean,
+        startId: Int
+    ) {
+        releasePlaybackResources()
         acquireWakeLock()
         requestAlarmAudioFocus()
 
         val rawResId = rawResIdForVoice(voice)
         try {
             val afd = resources.openRawResourceFd(rawResId)
-            val player = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                afd.close()
-                isLooping = false
-                prepare()
-                setOnCompletionListener {
-                    stopPlaybackAndSelf()
+            val player = MediaPlayer()
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            afd.close()
+            player.isLooping = false
+            player.prepare()
+            player.setOnCompletionListener {
+                if (mediaPlayer === player) {
+                    stopPlaybackAndSelf(latestStartId)
                 }
-                setOnErrorListener { _, _, _ ->
-                    stopPlaybackAndSelf()
-                    true
-                }
-                start()
             }
+            player.setOnErrorListener { _, _, _ ->
+                if (mediaPlayer === player) {
+                    stopPlaybackAndSelf(latestStartId)
+                }
+                true
+            }
+            player.start()
             mediaPlayer = player
             val duration = player.duration.coerceAtLeast(0)
             _playbackState.value = AdhanPlaybackState(
@@ -146,7 +198,7 @@ class AdhanPlaybackService : Service() {
                 }
             }
         } catch (_: Exception) {
-            stopPlaybackAndSelf()
+            stopPlaybackAndSelf(startId)
         }
     }
 
@@ -203,6 +255,7 @@ class AdhanPlaybackService : Service() {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setOngoing(true)
             .setContentIntent(alarmScreenPendingIntent)
             .addAction(
@@ -286,18 +339,28 @@ class AdhanPlaybackService : Service() {
         _playbackState.value = _playbackState.value.copy(isPlaying = false, positionMs = 0)
     }
 
-    private fun stopPlaybackAndSelf() {
+    private fun stopPlaybackAndSelf(startId: Int = -1) {
         releasePlaybackResources()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
+        val shouldRemoveForeground = if (startId > 0) {
+            stopSelfResult(startId)
         } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+            stopSelf()
+            true
         }
-        stopSelf()
+        if (shouldRemoveForeground) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            hasEnteredForeground = false
+        }
     }
 
     override fun onDestroy() {
+        isServiceRunning = false
+        hasEnteredForeground = false
         releasePlaybackResources()
         serviceScope.cancel()
         super.onDestroy()
@@ -313,6 +376,12 @@ class AdhanPlaybackService : Service() {
 
         const val PLAYBACK_CHANNEL_ID = "noor_bangla_full_adhan_alarm_v17"
         private const val NOTIFICATION_ID = 4401
+
+        @Volatile
+        private var isServiceRunning: Boolean = false
+
+        @Volatile
+        private var pendingStopRequested: Boolean = false
 
         private val _playbackState = MutableStateFlow(AdhanPlaybackState())
         val playbackState: StateFlow<AdhanPlaybackState> = _playbackState.asStateFlow()
@@ -351,28 +420,44 @@ class AdhanPlaybackService : Service() {
             isEnglish: Boolean,
             isTestMode: Boolean
         ) {
-            val intent = Intent(context.applicationContext, AdhanPlaybackService::class.java).apply {
+            pendingStopRequested = false
+            val appContext = context.applicationContext
+            val intent = Intent(appContext, AdhanPlaybackService::class.java).apply {
                 action = ACTION_PLAY
                 putExtra(EXTRA_WAQT_KEY, waqt.key)
                 putExtra(EXTRA_VOICE_NAME, voice.name)
                 putExtra(EXTRA_IS_ENGLISH, isEnglish)
                 putExtra(EXTRA_IS_TEST_MODE, isTestMode)
             }
-            ContextCompat.startForegroundService(context.applicationContext, intent)
+            try {
+                ContextCompat.startForegroundService(appContext, intent)
+            } catch (_: Exception) {
+                // Fallback if OS blocks foreground service start from restricted background state
+                try {
+                    appContext.startService(intent)
+                } catch (_: Exception) {
+                    _playbackState.value = _playbackState.value.copy(isPlaying = false, positionMs = 0)
+                }
+            }
         }
 
         fun stopPlayback(context: Context) {
+            pendingStopRequested = true
+            _playbackState.value = _playbackState.value.copy(isPlaying = false, positionMs = 0)
+            if (!isServiceRunning) {
+                return
+            }
+            val appContext = context.applicationContext
             try {
-                val intent = Intent(context.applicationContext, AdhanPlaybackService::class.java).apply {
+                val intent = Intent(appContext, AdhanPlaybackService::class.java).apply {
                     action = ACTION_STOP
                 }
-                context.applicationContext.startService(intent)
+                appContext.startService(intent)
             } catch (_: Exception) {
-                context.applicationContext.stopService(
-                    Intent(context.applicationContext, AdhanPlaybackService::class.java)
-                )
+                runCatching {
+                    appContext.stopService(Intent(appContext, AdhanPlaybackService::class.java))
+                }
             }
-            _playbackState.value = _playbackState.value.copy(isPlaying = false, positionMs = 0)
         }
     }
 }

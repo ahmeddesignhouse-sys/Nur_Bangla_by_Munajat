@@ -105,7 +105,8 @@ private sealed class MosqueScreenState {
     data class Loaded(
         val mosques: List<NearbyMosque>,
         val requestedRadiusMeters: Int,
-        val effectiveRadiusMeters: Int
+        val effectiveRadiusMeters: Int,
+        val answeredMirror: String = ""
     ) : MosqueScreenState() {
         val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
     }
@@ -169,7 +170,8 @@ fun MosqueFinderScreen(
                     is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
                         mosques = res.mosques,
                         requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                        effectiveRadiusMeters = res.effectiveRadiusMeters,
+                        answeredMirror = res.answeredMirror
                     )
                     is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
                         if (isEn) res.messageEn else res.messageBn
@@ -179,7 +181,11 @@ fun MosqueFinderScreen(
                 throw ce
             } catch (_: Exception) {
                 screenState = MosqueScreenState.Error(
-                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                    tr(
+                        isEn,
+                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
+                        "All 3 servers are busy, please try again in 1 minute"
+                    )
                 )
             }
         }
@@ -255,7 +261,8 @@ fun MosqueFinderScreen(
                     is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
                         mosques = res.mosques,
                         requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                        effectiveRadiusMeters = res.effectiveRadiusMeters,
+                        answeredMirror = res.answeredMirror
                     )
                     is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
                         if (isEn) res.messageEn else res.messageBn
@@ -265,7 +272,11 @@ fun MosqueFinderScreen(
                 throw ce
             } catch (_: Exception) {
                 screenState = MosqueScreenState.Error(
-                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                    tr(
+                        isEn,
+                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
+                        "All 3 servers are busy, please try again in 1 minute"
+                    )
                 )
             }
         }
@@ -645,6 +656,7 @@ fun MosqueFinderScreen(
                             "${filtered.size} Mosques"
                         ),
                         pinColor = MaterialTheme.colorScheme.primary,
+                        mirrorSourceLabel = state.answeredMirror,
                         onSelectPin = { pinId -> selectedMapPinId = pinId },
                         onClearSelection = { selectedMapPinId = null },
                         onOpenDirections = { pin ->
@@ -659,11 +671,12 @@ fun MosqueFinderScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         item {
+                            val mirrorTag = if (state.answeredMirror.isNotBlank()) " • ${state.answeredMirror}" else ""
                             Text(
                                 text = tr(
                                     isEn,
-                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি মসজিদ পাওয়া গেছে (দূরত্ব অনুযায়ী সাজানো)",
-                                    "${filtered.size} mosques found (sorted by distance)"
+                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি মসজিদ পাওয়া গেছে (দূরত্ব অনুযায়ী)$mirrorTag",
+                                    "${filtered.size} mosques found (sorted by distance)$mirrorTag"
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

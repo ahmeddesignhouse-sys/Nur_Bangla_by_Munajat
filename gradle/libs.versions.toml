@@ -41,8 +41,6 @@ googleServices = "4.5.0"
 credentials = "1.5.0"
 googleid = "1.1.1"
 osmdroid = "6.1.20"
-playServicesMaps = "19.0.0"
-mapsCompose = "6.4.1"
 
 
 [libraries]
@@ -98,8 +96,6 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
-play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
-maps-compose = { group = "com.google.maps.android", name = "maps-compose", version.ref = "mapsCompose" }
 
 
 [plugins]

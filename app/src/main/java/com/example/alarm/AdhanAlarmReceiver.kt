@@ -64,13 +64,17 @@ class AdhanAlarmReceiver : BroadcastReceiver() {
         @Volatile
         private var activeRingtone: Ringtone? = null
 
-        fun stopActiveAudio(context: Context? = null) {
+        private fun stopLocalRingtone() {
             try {
                 activeRingtone?.stop()
             } catch (_: Exception) {
             } finally {
                 activeRingtone = null
             }
+        }
+
+        fun stopActiveAudio(context: Context? = null) {
+            stopLocalRingtone()
             if (context != null) {
                 AdhanPlaybackService.stopPlayback(context)
             }
@@ -103,9 +107,11 @@ class AdhanAlarmReceiver : BroadcastReceiver() {
             isEnglish: Boolean = false,
             isTestMode: Boolean = false
         ) {
-            // Full offline Azan MP3 via dedicated mediaPlayback Foreground Service on USAGE_ALARM
+            // Full offline Azan MP3 via dedicated mediaPlayback Foreground Service on USAGE_ALARM.
+            // Only stop any local beep ringtone here — AdhanPlaybackService cleanly replaces
+            // any previous Adhan playback internally without racing ACTION_STOP vs ACTION_PLAY.
             if (!isPreReminder && voice.isFullAdhan) {
-                stopActiveAudio(context)
+                stopLocalRingtone()
                 AdhanPlaybackService.startPlayback(
                     context = context,
                     waqt = waqt,

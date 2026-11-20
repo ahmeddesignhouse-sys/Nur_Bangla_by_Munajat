@@ -106,7 +106,8 @@ private sealed class HalalScreenState {
     data class Loaded(
         val restaurants: List<NearbyHalalRestaurant>,
         val requestedRadiusMeters: Int,
-        val effectiveRadiusMeters: Int
+        val effectiveRadiusMeters: Int,
+        val answeredMirror: String = ""
     ) : HalalScreenState() {
         val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
     }
@@ -168,7 +169,8 @@ fun HalalFinderScreen(
                     is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
                         restaurants = res.restaurants,
                         requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                        effectiveRadiusMeters = res.effectiveRadiusMeters,
+                        answeredMirror = res.answeredMirror
                     )
                     is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
                         if (isEn) res.messageEn else res.messageBn
@@ -178,7 +180,11 @@ fun HalalFinderScreen(
                 throw ce
             } catch (_: Exception) {
                 screenState = HalalScreenState.Error(
-                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                    tr(
+                        isEn,
+                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
+                        "All 3 servers are busy, please try again in 1 minute"
+                    )
                 )
             }
         }
@@ -254,7 +260,8 @@ fun HalalFinderScreen(
                     is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
                         restaurants = res.restaurants,
                         requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters
+                        effectiveRadiusMeters = res.effectiveRadiusMeters,
+                        answeredMirror = res.answeredMirror
                     )
                     is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
                         if (isEn) res.messageEn else res.messageBn
@@ -264,7 +271,11 @@ fun HalalFinderScreen(
                 throw ce
             } catch (_: Exception) {
                 screenState = HalalScreenState.Error(
-                    tr(isEn, "সার্ভার ব্যস্ত, আবার চেষ্টা করুন", "Server busy, please try again")
+                    tr(
+                        isEn,
+                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
+                        "All 3 servers are busy, please try again in 1 minute"
+                    )
                 )
             }
         }
@@ -654,6 +665,7 @@ fun HalalFinderScreen(
                             "${filtered.size} Places"
                         ),
                         pinColor = StatusOnTimeColor,
+                        mirrorSourceLabel = state.answeredMirror,
                         onSelectPin = { pinId -> selectedMapPinId = pinId },
                         onClearSelection = { selectedMapPinId = null },
                         onOpenDirections = { pin ->
@@ -675,11 +687,12 @@ fun HalalFinderScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         item {
+                            val mirrorTag = if (state.answeredMirror.isNotBlank()) " • ${state.answeredMirror}" else ""
                             Text(
                                 text = tr(
                                     isEn,
-                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি হালাল রেস্টুরেন্ট (দূরত্ব অনুযায়ী • ম্যাপে দেখতে ট্যাপ করুন)",
-                                    "${filtered.size} halal restaurants (sorted by distance • tap to view on map)"
+                                    "${BanglaUtils.formatNumber(filtered.size, false)}টি রেস্টুরেন্ট (হালাল আগে ও দূরত্ব অনুযায়ী)$mirrorTag",
+                                    "${filtered.size} restaurants (Halal first, then nearest)$mirrorTag"
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

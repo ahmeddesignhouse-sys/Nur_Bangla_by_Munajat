@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.TravelExplore
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,9 +51,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,7 +58,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +70,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -95,6 +92,12 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
+/**
+ * Vertically scrollable Islamic Tools screen:
+ * - Top 8 tool shortcuts grid
+ * - Dedicated full-width Qibla Compass card with fixed 320dp compass container (no clipping/overlap)
+ * - Dedicated full-width Digital Tasbih card directly below with full counter dial & controls
+ */
 @Composable
 fun IslamicToolsScreen(
     uiState: NoorUiState,
@@ -113,136 +116,120 @@ fun IslamicToolsScreen(
     onOpenHalalFinder: () -> Unit
 ) {
     val isEn = isEnglishLang(LocalAppLanguage.current)
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Qibla, 1 = Tasbih
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag("tools_scroll_container"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = tr(isEn, "ইসলামিক টুলস", "Islamic Tools"),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Row 1: Hijri Calendar, Dua & Azkar, 99 Names of Allah
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.CalendarMonth,
-                title = tr(isEn, "হিজরি\nক্যালেন্ডার", "Hijri\nCalendar"),
-                onClick = onOpenHijriCalendar,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_hijri_calendar")
-            )
-            ToolFeatureShortcutCard(
-                icon = Icons.AutoMirrored.Filled.MenuBook,
-                title = tr(isEn, "দোয়া ও\nআজকার", "Dua &\nAzkar"),
-                onClick = onOpenDuaAzkar,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_dua_azkar")
-            )
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.AutoAwesome,
-                title = tr(isEn, "আল্লাহর\n৯৯ নাম", "99 Names\nof Allah"),
-                onClick = onOpenAsmaulHusna,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_asmaul_husna")
+        item {
+            Text(
+                text = tr(isEn, "ইসলামিক টুলস", "Islamic Tools"),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // Shortcut Grid (3 clean rows, all 8 tools preserved)
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Row 1: Hijri Calendar, Dua & Azkar, 99 Names of Allah
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.CalendarMonth,
+                        title = tr(isEn, "হিজরি\nক্যালেন্ডার", "Hijri\nCalendar"),
+                        onClick = onOpenHijriCalendar,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_hijri_calendar")
+                    )
+                    ToolFeatureShortcutCard(
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                        title = tr(isEn, "দোয়া ও\nআজকার", "Dua &\nAzkar"),
+                        onClick = onOpenDuaAzkar,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_dua_azkar")
+                    )
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.AutoAwesome,
+                        title = tr(isEn, "আল্লাহর\n৯৯ নাম", "99 Names\nof Allah"),
+                        onClick = onOpenAsmaulHusna,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_asmaul_husna")
+                    )
+                }
 
-        // Row 2: Ramadan Calendar, Zakat Calculator, Mosque Finder
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.NightsStay,
-                title = tr(isEn, "রমজান\nক্যালেন্ডার", "Ramadan\nCalendar"),
-                onClick = onOpenRamadanCalendar,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_ramadan_calendar")
-            )
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.Calculate,
-                title = tr(isEn, "যাকাত\nহিসাব", "Zakat\nCalculator"),
-                onClick = onOpenZakatCalculator,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_zakat_calculator")
-            )
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.Mosque,
-                title = tr(isEn, "নিকটবর্তী\nমসজিদ", "Mosque\nFinder"),
-                onClick = onOpenMosqueFinder,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_mosque_finder")
-            )
-        }
+                // Row 2: Ramadan Calendar, Zakat Calculator, Mosque Finder
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.NightsStay,
+                        title = tr(isEn, "রমজান\nক্যালেন্ডার", "Ramadan\nCalendar"),
+                        onClick = onOpenRamadanCalendar,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_ramadan_calendar")
+                    )
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.Calculate,
+                        title = tr(isEn, "যাকাত\nহিসাব", "Zakat\nCalculator"),
+                        onClick = onOpenZakatCalculator,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_zakat_calculator")
+                    )
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.Mosque,
+                        title = tr(isEn, "নিকটবর্তী\nমসজিদ", "Mosque\nFinder"),
+                        onClick = onOpenMosqueFinder,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_mosque_finder")
+                    )
+                }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Row 3: Hajj & Umrah Guide, Halal Food Finder
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.TravelExplore,
-                title = tr(isEn, "হজ্জ ও উমরাহ\nগাইড", "Hajj & Umrah\nGuide"),
-                onClick = onOpenHajjUmrahGuide,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_hajj_umrah")
-            )
-            ToolFeatureShortcutCard(
-                icon = Icons.Default.Restaurant,
-                title = tr(isEn, "হালাল\nরেস্টুরেন্ট", "Halal Food\nFinder"),
-                onClick = onOpenHalalFinder,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("tools_open_halal_finder")
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            SegmentedButton(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                icon = { Icon(Icons.Default.Explore, contentDescription = null) }
-            ) {
-                Text(tr(isEn, "কিবলা কম্পাস", "Qibla Compass"))
-            }
-            SegmentedButton(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                icon = { Icon(Icons.Default.TouchApp, contentDescription = null) }
-            ) {
-                Text(tr(isEn, "ডিজিটাল তাসবিহ", "Digital Tasbih"))
+                // Row 3: Hajj & Umrah Guide, Halal Food Finder
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.TravelExplore,
+                        title = tr(isEn, "হজ্জ ও উমরাহ\nগাইড", "Hajj & Umrah\nGuide"),
+                        onClick = onOpenHajjUmrahGuide,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_hajj_umrah")
+                    )
+                    ToolFeatureShortcutCard(
+                        icon = Icons.Default.Restaurant,
+                        title = tr(isEn, "হালাল\nরেস্টুরেন্ট", "Halal Food\nFinder"),
+                        onClick = onOpenHalalFinder,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("tools_open_halal_finder")
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        // Dedicated Full-Width Qibla Compass Card (fixed 320dp compass area — never clipped or overlapped)
+        item {
+            QiblaCompassSectionCard(uiState = uiState, isEn = isEn)
+        }
 
-        if (selectedTab == 0) {
-            QiblaCompassPane(uiState = uiState, isEn = isEn)
-        } else {
-            DigitalTasbihPane(
+        // Dedicated Full-Width Digital Tasbih Card directly below Qibla Compass
+        item {
+            DigitalTasbihSectionCard(
                 uiState = uiState,
                 isEn = isEn,
                 currentDhikr = currentDhikr,
@@ -293,7 +280,7 @@ private fun ToolFeatureShortcutCard(
 }
 
 @Composable
-private fun QiblaCompassPane(uiState: NoorUiState, isEn: Boolean) {
+private fun QiblaCompassSectionCard(uiState: NoorUiState, isEn: Boolean) {
     val context = LocalContext.current
     var azimuthDeg by remember { mutableFloatStateOf(0f) }
     var sensorAvailable by remember { mutableStateOf(true) }
@@ -379,78 +366,96 @@ private fun QiblaCompassPane(uiState: NoorUiState, isEn: Boolean) {
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("tools_qibla_section_card"),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAligned) StatusOnTimeColor.copy(alpha = 0.14f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        item {
-            Card(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isAligned) StatusOnTimeColor.copy(alpha = 0.16f)
-                    else MaterialTheme.colorScheme.surface
-                ),
-                shape = RoundedCornerShape(20.dp)
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = if (isAligned) {
-                            tr(
-                                isEn,
-                                "আলহামদুলিল্লাহ! আপনি সঠিক কিবলামুখী হয়েছেন",
-                                "Alhamdulillah! You are facing the Qibla"
-                            )
-                        } else {
-                            tr(
-                                isEn,
-                                "ফোনটি সমতলে রেখে কিবলার দিকে ঘোরান",
-                                "Hold your phone flat and rotate toward Qibla"
-                            )
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isAligned) StatusOnTimeColor else primaryColor,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = tr(
-                            isEn,
-                            "${uiState.locationDisplayTitle} থেকে কাবার দিক: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), false)}° (${cardinalDirection(qiblaBearing, false)})",
-                            "Qibla from ${uiState.locationDisplayTitle}: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), true)}° (${cardinalDirection(qiblaBearing, true)})"
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        text = tr(
-                            isEn,
-                            "মক্কা শরীফের দূরত্ব: প্রায় ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, false)} কি.মি.",
-                            "Distance to Makkah: approx. ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, true)} km"
-                        ),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = secondaryColor
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Explore,
+                    contentDescription = null,
+                    tint = if (isAligned) StatusOnTimeColor else primaryColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = tr(isEn, "কিবলা কম্পাস", "Qibla Compass"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
-        }
 
-        item {
+            Text(
+                text = if (isAligned) {
+                    tr(
+                        isEn,
+                        "আলহামদুলিল্লাহ! আপনি সঠিক কিবলামুখী হয়েছেন",
+                        "Alhamdulillah! You are facing the Qibla"
+                    )
+                } else {
+                    tr(
+                        isEn,
+                        "ফোনটি সমতলে রেখে কিবলার দিকে ঘোরান",
+                        "Hold your phone flat and rotate toward Qibla"
+                    )
+                },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (isAligned) StatusOnTimeColor else primaryColor,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = tr(
+                    isEn,
+                    "${uiState.locationDisplayTitle} থেকে কাবার দিক: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), false)}° (${cardinalDirection(qiblaBearing, false)})",
+                    "Qibla from ${uiState.locationDisplayTitle}: ${BanglaUtils.formatNumber(qiblaBearing.toInt(), true)}° (${cardinalDirection(qiblaBearing, true)})"
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = tr(
+                    isEn,
+                    "মক্কা শরীফের দূরত্ব: প্রায় ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, false)} কি.মি.",
+                    "Distance to Makkah: approx. ${BanglaUtils.formatNumber(uiState.distanceToKaabaKm, true)} km"
+                ),
+                style = MaterialTheme.typography.labelLarge,
+                color = secondaryColor
+            )
+
+            // Fixed-height 320dp container so the complete compass dial & needle are ALWAYS visible
             Box(
                 modifier = Modifier
-                    .size(280.dp)
-                    .padding(8.dp),
+                    .fillMaxWidth()
+                    .height(320.dp)
+                    .testTag("tools_qibla_compass_box"),
                 contentAlignment = Alignment.Center
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(
+                    modifier = Modifier
+                        .size(280.dp)
+                        .padding(8.dp)
+                ) {
                     val center = Offset(size.width / 2f, size.height / 2f)
                     val radius = size.minDimension / 2f - 10f
 
@@ -507,13 +512,12 @@ private fun QiblaCompassPane(uiState: NoorUiState, isEn: Boolean) {
                     drawCircle(color = primaryColor, radius = 10f, center = center)
                 }
             }
-        }
 
-        if (!sensorAvailable) {
-            item {
-                Card(
+            if (!sensorAvailable) {
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
                         text = tr(
@@ -521,9 +525,9 @@ private fun QiblaCompassPane(uiState: NoorUiState, isEn: Boolean) {
                             "এই ডিভাইসে ম্যাগনেটোমিটার সেন্সর পাওয়া যায়নি। তবুও ভৌগোলিক হিসেব অনুযায়ী কাবার দিক ${cardinalDirection(qiblaBearing, false)} (${BanglaUtils.formatNumber(qiblaBearing.toInt(), false)}°)।",
                             "Magnetometer sensor not found on this device. Geographically, Qibla is ${cardinalDirection(qiblaBearing, true)} (${BanglaUtils.formatNumber(qiblaBearing.toInt(), true)}°)."
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(14.dp)
+                        modifier = Modifier.padding(12.dp)
                     )
                 }
             }
@@ -553,7 +557,7 @@ private fun smoothAngle(current: Float, target: Float): Float {
 }
 
 @Composable
-private fun DigitalTasbihPane(
+private fun DigitalTasbihSectionCard(
     uiState: NoorUiState,
     isEn: Boolean,
     currentDhikr: DhikrItem,
@@ -571,14 +575,43 @@ private fun DigitalTasbihPane(
     val cycles = uiState.settings.tasbihCycles
     val progress = (count.toFloat() / target.toFloat()).coerceIn(0f, 1f)
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("tools_tasbih_section_card"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.TouchApp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = tr(isEn, "ডিজিটাল তাসবিহ", "Digital Tasbih"),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 items(BanglaDhikrCatalog.ALL, key = { it.id }) { item ->
                     FilterChip(
                         selected = item.id == currentDhikr.id,
@@ -587,18 +620,16 @@ private fun DigitalTasbihPane(
                     )
                 }
             }
-        }
 
-        item {
-            Card(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
-                shape = RoundedCornerShape(20.dp)
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(18.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(18.dp),
+                        .padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -612,7 +643,8 @@ private fun DigitalTasbihPane(
                     Text(
                         text = currentDhikr.title(isEn),
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
                     )
                     Text(
                         text = currentDhikr.meaning(isEn),
@@ -622,14 +654,12 @@ private fun DigitalTasbihPane(
                     )
                 }
             }
-        }
 
-        item {
             val primaryColor = MaterialTheme.colorScheme.primary
             val trackColor = MaterialTheme.colorScheme.surfaceVariant
             Box(
                 modifier = Modifier
-                    .size(230.dp)
+                    .size(224.dp)
                     .clip(CircleShape)
                     .clickable {
                         val completed = onIncrement()
@@ -663,7 +693,7 @@ private fun DigitalTasbihPane(
                     )
                 }
                 Surface(
-                    modifier = Modifier.size(180.dp),
+                    modifier = Modifier.size(176.dp),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 4.dp
@@ -692,9 +722,7 @@ private fun DigitalTasbihPane(
                     }
                 }
             }
-        }
 
-        item {
             Text(
                 text = tr(
                     isEn,
@@ -704,28 +732,49 @@ private fun DigitalTasbihPane(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
-        }
 
-        item {
+            // Target preset chips on Row 1 (never cramped on narrow phones)
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf(33, 99, 100).forEach { preset ->
                     FilterChip(
                         selected = target == preset,
                         onClick = { onSetTarget(preset) },
-                        label = { Text(BanglaUtils.formatNumber(preset, isEn)) }
+                        label = { Text(BanglaUtils.formatNumber(preset, isEn)) },
+                        modifier = Modifier.testTag("tasbih_target_$preset")
                     )
                 }
-                OutlinedButton(onClick = { showCustomTargetDialog = true }) {
-                    Text(tr(isEn, "কাস্টম", "Custom"))
+            }
+
+            // Custom target + Reset buttons on Row 2 (full width, generous 48dp touch targets)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { showCustomTargetDialog = true },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("tasbih_custom_target_button")
+                ) {
+                    Text(tr(isEn, "কাস্টম লক্ষ্য", "Custom Target"))
                 }
                 OutlinedButton(
                     onClick = onReset,
-                    modifier = Modifier.testTag("tasbih_reset_button")
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("tasbih_reset_button")
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = tr(isEn, "রিসেট", "Reset"), modifier = Modifier.size(18.dp))
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(tr(isEn, "রিসেট", "Reset"))
                 }
             }
         }

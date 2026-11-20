@@ -16,7 +16,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
-import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.URLEncoder
 import java.net.UnknownHostException
@@ -48,6 +47,7 @@ sealed class MosqueSearchResult {
         val mosques: List<NearbyMosque>,
         val requestedRadiusMeters: Int = 5000,
         val effectiveRadiusMeters: Int = requestedRadiusMeters,
+        val answeredMirror: String = "",
         val fromCache: Boolean = false
     ) : MosqueSearchResult() {
         val wasExpanded: Boolean
@@ -57,12 +57,12 @@ sealed class MosqueSearchResult {
 }
 
 /**
- * Fast, reliable nearby mosque discovery via OpenStreetMap Overpass API:
- * - Simple, proven `around:` query for Muslim places of worship (node & way).
- * - 20-second timeout with ONE retry only (never an endless spinner).
- * - Automatic radius expansion (2 km -> 5 km -> 10 km -> 20 km) when a step truly returns 0 results.
- * - 10-minute in-memory result cache & cooperative coroutine cancellation on screen exit.
- * - Specific Bangla/English errors for offline, busy/timeout, and truly empty area.
+ * 100% FREE nearby mosque discovery using OpenStreetMap Overpass API:
+ * - Tries 3 Overpass mirrors in order (1 primary + 2 retries total) via HTTP POST body (`data=...`).
+ * - 30-second read timeout per server, 25-second Overpass query timeout.
+ * - Logs and returns which mirror answered.
+ * - Auto-expands radius (2 km -> 5 km -> 10 km -> 20 km) if a step truly returns 0 mosques.
+ * - 10-minute in-memory cache, Dispatchers.IO execution, cooperative cancellation on screen exit.
  */
 class MosqueRepository(private val context: Context) {
 
@@ -97,36 +97,40 @@ class MosqueRepository(private val context: Context) {
         val cacheKey = buildCacheKey(userLat, userLon, radiusMeters)
         if (!forceRefresh) {
             getCachedResult(cacheKey)?.let { cached ->
-                runCatching { Log.d(TAG, "Returning cached mosques (${cached.mosques.size}) for $cacheKey") }
+                runCatching {
+                    Log.i(TAG, "Cache hit: ${cached.mosques.size} mosques (mirror=${cached.answeredMirror})")
+                }
                 return@withContext cached.copy(fromCache = true)
             }
         }
 
         val radiusLadder = buildRadiusLadder(radiusMeters)
-        var anyServerResponded = false
+        var anyMirrorAnswered = false
+        var lastAnsweredMirror = ""
         var lastException: Exception? = null
-        var lastHttpCode: Int? = null
 
         for (stepRadius in radiusLadder) {
             currentCoroutineContext().ensureActive()
 
             val query = buildOverpassQuery(userLat, userLon, stepRadius)
-            val outcome = executeOverpassWithOneRetry(query)
+            val outcome = executeOverpassAcrossMirrors(query)
 
             when (outcome) {
                 is OverpassCallOutcome.Success -> {
-                    anyServerResponded = true
+                    anyMirrorAnswered = true
+                    lastAnsweredMirror = outcome.mirrorHost
                     val maxKm = stepRadius / 1000.0
                     val mosques = parseOverpassResponse(outcome.body, userLat, userLon)
-                        .filter { it.distanceKm <= maxKm + 0.15 }
+                        .filter { it.distanceKm <= maxKm + 0.2 }
                     runCatching {
-                        Log.d(TAG, "Overpass mosques at ${stepRadius}m returned ${mosques.size} results")
+                        Log.i(TAG, "Mosque Overpass [${outcome.mirrorHost}] radius=${stepRadius}m -> ${mosques.size} results")
                     }
                     if (mosques.isNotEmpty()) {
                         val success = MosqueSearchResult.Success(
                             mosques = mosques,
                             requestedRadiusMeters = radiusMeters,
                             effectiveRadiusMeters = stepRadius,
+                            answeredMirror = outcome.mirrorHost,
                             fromCache = false
                         )
                         putCachedResult(cacheKey, success)
@@ -134,67 +138,69 @@ class MosqueRepository(private val context: Context) {
                     }
                     // Truly 0 mosques in this radius -> auto-expand to next radius step
                 }
-                is OverpassCallOutcome.Failure -> {
-                    lastException = outcome.exception
-                    lastHttpCode = outcome.httpCode
-                    // Server failed/timed out even after 1 retry -> stop immediately, do NOT loop radii
+                is OverpassCallOutcome.AllMirrorsFailed -> {
+                    lastException = outcome.lastException
+                    // All 3 mirrors failed -> stop immediately, do NOT loop radii
                     break
                 }
             }
         }
 
-        if (anyServerResponded) {
+        if (anyMirrorAnswered) {
             return@withContext MosqueSearchResult.Success(
                 mosques = emptyList(),
                 requestedRadiusMeters = radiusMeters,
-                effectiveRadiusMeters = radiusLadder.last()
+                effectiveRadiusMeters = radiusLadder.last(),
+                answeredMirror = lastAnsweredMirror
             )
         }
 
         if (!isOnline() || lastException is UnknownHostException) {
             MosqueSearchResult.Offline
         } else {
-            buildSpecificError(lastException, lastHttpCode)
+            MosqueSearchResult.Error(
+                messageBn = "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
+                messageEn = "All 3 servers are busy, please try again in 1 minute"
+            )
         }
     }
 
-    private sealed class OverpassCallOutcome {
-        data class Success(val body: String) : OverpassCallOutcome()
-        data class Failure(val exception: Exception?, val httpCode: Int?) : OverpassCallOutcome()
+    internal sealed class OverpassCallOutcome {
+        data class Success(val body: String, val mirrorHost: String, val elapsedMs: Long) : OverpassCallOutcome()
+        data class AllMirrorsFailed(val lastException: Exception?) : OverpassCallOutcome()
     }
 
-    private suspend fun executeOverpassWithOneRetry(query: String): OverpassCallOutcome {
+    internal suspend fun executeOverpassAcrossMirrors(query: String): OverpassCallOutcome {
         var lastException: Exception? = null
-        var lastHttpCode: Int? = null
 
-        // Primary attempt + ONE retry only (2 endpoints max)
-        for ((index, endpoint) in OVERPASS_ENDPOINTS.withIndex()) {
+        // Try all 3 mirrors IN ORDER (1 initial + 2 retries total)
+        for ((index, endpoint) in OVERPASS_MIRRORS.withIndex()) {
             currentCoroutineContext().ensureActive()
-            val fullLoggedUrl = "$endpoint?data=${URLEncoder.encode(query, "UTF-8")}"
+            val mirrorHost = runCatching { URL(endpoint).host }.getOrDefault(endpoint)
             val startedMs = System.currentTimeMillis()
             runCatching {
-                Log.d(TAG, "Overpass mosque attempt #${index + 1} URL: $fullLoggedUrl")
+                Log.d(TAG, "Overpass mosque POST attempt #${index + 1}/3 -> $endpoint")
             }
             try {
                 val body = postOverpassQueryCancellable(endpoint, query)
+                validateOverpassJsonBody(body)
+                val elapsedMs = System.currentTimeMillis() - startedMs
                 runCatching {
-                    val elapsed = System.currentTimeMillis() - startedMs
-                    Log.d(TAG, "Overpass mosque attempt #${index + 1} succeeded in ${elapsed}ms (${body.length} chars)")
+                    Log.i(TAG, "Overpass mosque mirror answered: $mirrorHost in ${elapsedMs}ms (${body.length} chars)")
                 }
-                return OverpassCallOutcome.Success(body)
+                return OverpassCallOutcome.Success(body = body, mirrorHost = mirrorHost, elapsedMs = elapsedMs)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (e: HttpStatusException) {
-                lastHttpCode = e.statusCode
-                lastException = e
-                runCatching { Log.w(TAG, "Overpass mosque attempt #${index + 1} HTTP ${e.statusCode}") }
             } catch (e: Exception) {
                 lastException = e
-                runCatching { Log.w(TAG, "Overpass mosque attempt #${index + 1} failed: ${e.javaClass.simpleName}: ${e.message}") }
+                val elapsedMs = System.currentTimeMillis() - startedMs
+                runCatching {
+                    Log.w(TAG, "Overpass mosque mirror $mirrorHost failed in ${elapsedMs}ms: ${e.javaClass.simpleName}: ${e.message}")
+                }
             }
         }
 
-        return OverpassCallOutcome.Failure(lastException, lastHttpCode)
+        return OverpassCallOutcome.AllMirrorsFailed(lastException)
     }
 
     private suspend fun postOverpassQueryCancellable(endpointUrl: String, query: String): String {
@@ -203,8 +209,10 @@ class MosqueRepository(private val context: Context) {
             connectTimeout = CONNECT_TIMEOUT_MS
             readTimeout = READ_TIMEOUT_MS
             doOutput = true
+            useCaches = false
             setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept-Encoding", "identity")
             setRequestProperty("User-Agent", USER_AGENT)
         }
 
@@ -233,25 +241,6 @@ class MosqueRepository(private val context: Context) {
         }
     }
 
-    private fun buildSpecificError(
-        lastException: Exception?,
-        lastHttpCode: Int?
-    ): MosqueSearchResult.Error {
-        return when {
-            lastException is SocketTimeoutException ||
-                lastHttpCode == 429 ||
-                lastHttpCode == 503 ||
-                lastHttpCode == 504 -> MosqueSearchResult.Error(
-                messageBn = "সার্ভার ব্যস্ত, আবার চেষ্টা করুন",
-                messageEn = "Server busy, please try again"
-            )
-            else -> MosqueSearchResult.Error(
-                messageBn = "সার্ভার ব্যস্ত, আবার চেষ্টা করুন",
-                messageEn = "Server busy, please try again"
-            )
-        }
-    }
-
     internal class HttpStatusException(val statusCode: Int) : IllegalStateException("HTTP $statusCode")
 
     private data class CacheEntry(
@@ -261,20 +250,40 @@ class MosqueRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "MosqueRepository"
-        private const val USER_AGENT = "NurBanglaAndroid/1.7 (com.noorbangla.islam)"
-        private const val CONNECT_TIMEOUT_MS = 10_000
-        private const val READ_TIMEOUT_MS = 20_000
+        private const val USER_AGENT = "NurBanglaAndroid/1.7 (com.noorbangla.islam; OpenStreetMap Overpass client)"
+        private const val CONNECT_TIMEOUT_MS = 8_000
+        private const val READ_TIMEOUT_MS = 30_000
         const val CACHE_TTL_MS = 10 * 60 * 1000L
 
         val RADIUS_STEPS_METERS = listOf(2000, 5000, 10000, 20000)
 
-        // Primary + ONE retry endpoint only
-        val OVERPASS_ENDPOINTS = listOf(
+        // Three FREE Overpass mirrors tried strictly in order (1 primary + 2 retries)
+        val OVERPASS_MIRRORS = listOf(
             "https://overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter"
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter"
         )
 
         private val resultCache = ConcurrentHashMap<String, CacheEntry>()
+
+        internal fun validateOverpassJsonBody(body: String) {
+            val trimmed = body.trim()
+            if (!trimmed.startsWith("{")) {
+                throw IllegalStateException("Overpass returned non-JSON body")
+            }
+            val root = JSONObject(trimmed)
+            val elements = root.optJSONArray("elements")
+                ?: throw IllegalStateException("Overpass JSON missing elements array")
+            val remark = root.optString("remark", "").trim()
+            // Overpass can return HTTP 200 with empty elements + runtime error remark when overloaded
+            if (elements.length() == 0 && remark.isNotBlank() &&
+                (remark.contains("timeout", ignoreCase = true) ||
+                    remark.contains("error", ignoreCase = true) ||
+                    remark.contains("memory", ignoreCase = true))
+            ) {
+                throw IllegalStateException("Overpass remark error: $remark")
+            }
+        }
 
         internal fun buildCacheKey(lat: Double, lon: Double, radiusMeters: Int): String {
             val latGrid = (lat * 500).toInt()
@@ -305,20 +314,13 @@ class MosqueRepository(private val context: Context) {
         }
 
         /**
-         * Simple, proven Overpass QL query using `around:radius,lat,lon` for Muslim places of worship.
+         * Simple, proven Overpass QL query for Muslim places of worship (node & way).
          */
         fun buildOverpassQuery(lat: Double, lon: Double, radiusMeters: Int): String {
             val latStr = String.format(Locale.US, "%.5f", lat)
             val lonStr = String.format(Locale.US, "%.5f", lon)
             val safeRadius = radiusMeters.coerceIn(500, 20000)
-            return """
-                [out:json][timeout:20];
-                (
-                  node["amenity"="place_of_worship"]["religion"="muslim"](around:$safeRadius,$latStr,$lonStr);
-                  way["amenity"="place_of_worship"]["religion"="muslim"](around:$safeRadius,$latStr,$lonStr);
-                );
-                out center 60;
-            """.trimIndent()
+            return "[out:json][timeout:25]; (node[\"amenity\"=\"place_of_worship\"][\"religion\"=\"muslim\"](around:$safeRadius,$latStr,$lonStr); way[\"amenity\"=\"place_of_worship\"][\"religion\"=\"muslim\"](around:$safeRadius,$latStr,$lonStr);); out center 50;"
         }
 
         fun parseOverpassResponse(

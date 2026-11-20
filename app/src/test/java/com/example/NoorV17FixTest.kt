@@ -18,6 +18,7 @@ import com.example.util.ShareCardFormat
 import com.example.util.ShareCardTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -122,6 +123,80 @@ class NoorV17FixTest {
         }
     }
 
+    @Test
+    fun adhanForegroundServiceAlwaysCallsStartForegroundWithoutStopPlayRace() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val shadowApp = org.robolectric.Shadows.shadowOf(app)
+        shadowApp.clearStartedServices()
+
+        // 1. Triggering full Adhan must queue ONLY ACTION_PLAY (never a racing ACTION_STOP first)
+        com.example.alarm.AdhanAlarmReceiver.triggerAlert(
+            context = app,
+            waqt = WaqtType.FAJR,
+            voice = AdhanVoice.MAKKAH,
+            isPreReminder = false,
+            isEnglish = true,
+            isTestMode = true
+        )
+        val firstIntent = shadowApp.nextStartedService
+        assertNotNull("Expected AdhanPlaybackService to be started", firstIntent)
+        assertEquals(AdhanPlaybackService.ACTION_PLAY, firstIntent.action)
+        assertTrue(
+            "Must NOT queue a second conflicting service intent",
+            shadowApp.nextStartedService == null
+        )
+
+        // 2. Stopping when service is not running must NOT start a new service instance
+        AdhanPlaybackService.stopPlayback(app)
+        assertTrue(
+            "stopPlayback must not start AdhanPlaybackService when inactive",
+            shadowApp.nextStartedService == null
+        )
+
+        // 3. Even if ACTION_STOP arrives directly on a fresh Service instance (e.g. pending FGS),
+        // onStartCommand MUST promote to foreground before stopping to satisfy Android's FGS contract
+        val stopController = org.robolectric.Robolectric.buildService(AdhanPlaybackService::class.java)
+            .create()
+        val stopService = stopController.get()
+        stopService.onStartCommand(
+            android.content.Intent(app, AdhanPlaybackService::class.java).apply {
+                action = AdhanPlaybackService.ACTION_STOP
+            },
+            0,
+            1
+        )
+        val shadowStopService = org.robolectric.Shadows.shadowOf(stopService)
+        assertTrue(
+            "ACTION_STOP on fresh service must call startForeground() before stopping",
+            shadowStopService.lastForegroundNotificationId != 0
+        )
+        assertTrue(shadowStopService.isForegroundStopped)
+        assertTrue(shadowStopService.isStoppedBySelf)
+        stopController.destroy()
+
+        // 4. ACTION_PLAY promotes to foreground immediately
+        val playController = org.robolectric.Robolectric.buildService(AdhanPlaybackService::class.java)
+            .create()
+        val playService = playController.get()
+        playService.onStartCommand(
+            android.content.Intent(app, AdhanPlaybackService::class.java).apply {
+                action = AdhanPlaybackService.ACTION_PLAY
+                putExtra(AdhanPlaybackService.EXTRA_WAQT_KEY, WaqtType.MAGHRIB.key)
+                putExtra(AdhanPlaybackService.EXTRA_VOICE_NAME, AdhanVoice.MAKKAH.name)
+                putExtra(AdhanPlaybackService.EXTRA_IS_ENGLISH, false)
+                putExtra(AdhanPlaybackService.EXTRA_IS_TEST_MODE, true)
+            },
+            0,
+            2
+        )
+        val shadowPlayService = org.robolectric.Shadows.shadowOf(playService)
+        assertTrue(
+            "ACTION_PLAY must call startForeground() immediately",
+            shadowPlayService.lastForegroundNotificationId != 0
+        )
+        playController.destroy()
+    }
+
     // Issue 5: Mosque & Halal Finder radius ladder, Nominatim highway filtering & Overpass parsing
     @Test
     fun nearbyPlaceSearchLadderAndParsersWorkForNarayanganj() {
@@ -202,29 +277,37 @@ class NoorV17FixTest {
     }
 
     @Test
-    fun overpassQueriesHalalFirstFallbackCacheGpsAndMapFallbackWork() {
+    fun threeMirrorFreeOverpassQueriesHalalFirstSortingAndCacheWork() {
         // 1. GPS validation rejects (0,0) and NaN, accepts Narayanganj
         assertFalse(com.example.util.LocationHelper.isValidCoordinate(0.0, 0.0))
         assertFalse(com.example.util.LocationHelper.isValidCoordinate(Double.NaN, 90.5))
         assertTrue(com.example.util.LocationHelper.isValidCoordinate(23.6238, 90.5000))
 
-        // 2. Simple proven Overpass around: queries for Narayanganj at 5 km
+        // 2. Exact 3 FREE Overpass mirrors in strict order
+        assertEquals(
+            listOf(
+                "https://overpass-api.de/api/interpreter",
+                "https://overpass.kumi.systems/api/interpreter",
+                "https://overpass.private.coffee/api/interpreter"
+            ),
+            MosqueRepository.OVERPASS_MIRRORS
+        )
+        assertEquals(MosqueRepository.OVERPASS_MIRRORS, HalalRestaurantRepository.OVERPASS_MIRRORS)
+
+        // 3. Exact simple proven Overpass queries for Narayanganj at 5 km
         val mosqueQuery = MosqueRepository.buildOverpassQuery(23.6238, 90.5000, 5000)
-        assertTrue(mosqueQuery.contains("[timeout:20]"))
-        assertTrue(mosqueQuery.contains("""node["amenity"="place_of_worship"]["religion"="muslim"](around:5000,23.62380,90.50000)"""))
-        assertTrue(mosqueQuery.contains("""way["amenity"="place_of_worship"]["religion"="muslim"](around:5000,23.62380,90.50000)"""))
-        assertEquals(2, MosqueRepository.OVERPASS_ENDPOINTS.size) // primary + 1 retry only
+        assertEquals(
+            """[out:json][timeout:25]; (node["amenity"="place_of_worship"]["religion"="muslim"](around:5000,23.62380,90.50000); way["amenity"="place_of_worship"]["religion"="muslim"](around:5000,23.62380,90.50000);); out center 50;""",
+            mosqueQuery
+        )
 
-        val strictHalalQuery = HalalRestaurantRepository.buildStrictHalalOverpassQuery(23.6238, 90.5000, 5000)
-        assertTrue(strictHalalQuery.contains("diet:halal"))
-        assertTrue(strictHalalQuery.contains("around:5000,23.62380,90.50000"))
+        val halalQuery = HalalRestaurantRepository.buildOverpassQuery(23.6238, 90.5000, 5000)
+        assertEquals(
+            """[out:json][timeout:25]; (node["amenity"~"restaurant|cafe|fast_food"](around:5000,23.62380,90.50000); way["amenity"~"restaurant|cafe|fast_food"](around:5000,23.62380,90.50000);); out center 50;""",
+            halalQuery
+        )
 
-        val broadFoodQuery = HalalRestaurantRepository.buildAllRestaurantsOverpassQuery(23.6238, 90.5000, 5000)
-        assertTrue(broadFoodQuery.contains("""node["amenity"~"^(restaurant|cafe|fast_food)$"](around:5000,23.62380,90.50000)"""))
-        assertTrue(broadFoodQuery.contains("""way["amenity"~"^(restaurant|cafe|fast_food)$"](around:5000,23.62380,90.50000)"""))
-        assertEquals(2, HalalRestaurantRepository.OVERPASS_ENDPOINTS.size) // primary + 1 retry only
-
-        // 3. Broad fallback puts Halal-named / Halal-tagged restaurants FIRST ahead of closer general cafes
+        // 4. Broad restaurant list puts Halal-named / Halal-tagged restaurants FIRST ahead of closer general cafes
         val broadResponseJson = """
             {
               "elements": [
@@ -251,23 +334,28 @@ class NoorV17FixTest {
         assertEquals("Chashara Coffee Corner", parsedFood[1].nameEn)
         assertFalse(parsedFood[1].isExplicitHalal)
 
-        // 4. 10-minute cache stores & expires after 10 minutes
+        // 5. Overpass HTTP 200 overload remark is rejected so mirror failover triggers
+        var threwOnRemark = false
+        try {
+            MosqueRepository.validateOverpassJsonBody("""{"elements":[],"remark":"runtime error: Query timed out"}""")
+        } catch (_: IllegalStateException) {
+            threwOnRemark = true
+        }
+        assertTrue("Overpass runtime error remark must trigger mirror failover", threwOnRemark)
+
+        // 6. 10-minute cache stores & expires after 10 minutes
         MosqueRepository.clearCache()
         val key = MosqueRepository.buildCacheKey(23.6238, 90.5000, 5000)
         val now = 1_000_000L
         val sample = com.example.data.repository.MosqueSearchResult.Success(
             mosques = emptyList(),
             requestedRadiusMeters = 5000,
-            effectiveRadiusMeters = 5000
+            effectiveRadiusMeters = 5000,
+            answeredMirror = "overpass.private.coffee"
         )
         MosqueRepository.putCachedResult(key, sample, nowMs = now)
         assertTrue(MosqueRepository.getCachedResult(key, nowMs = now + 5 * 60_000L) != null)
         assertTrue(MosqueRepository.getCachedResult(key, nowMs = now + 11 * 60_000L) == null)
-
-        // 5. Google Maps API key detection falls back cleanly to OpenStreetMap when placeholder/empty
-        assertFalse(com.example.ui.components.hasValidGoogleMapsApiKey(""))
-        assertFalse(com.example.ui.components.hasValidGoogleMapsApiKey("YOUR_GOOGLE_MAPS_API_KEY"))
-        assertTrue(com.example.ui.components.hasValidGoogleMapsApiKey("AIzaSyDummyValidLookingGoogleMapsKey123456"))
     }
 
     @Test
@@ -286,5 +374,37 @@ class NoorV17FixTest {
         assertTrue("Expected MosqueSearchResult.Offline, got $mosqueResult", mosqueResult is com.example.data.repository.MosqueSearchResult.Offline)
         assertTrue("Expected HalalSearchResult.Offline, got $halalResult", halalResult is com.example.data.repository.HalalSearchResult.Offline)
         assertTrue("Offline check must finish well under 3 seconds (took ${elapsedMs}ms)", elapsedMs < 3_000L)
+    }
+
+    @Test
+    fun liveNarayanganjOverpassMirrorsReturnMosquesAndRestaurants() = kotlinx.coroutines.runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val lat = 23.6238
+        val lon = 90.5000
+        val radius = 5000
+
+        val mosqueRepo = MosqueRepository(context)
+        val mosqueOutcome = mosqueRepo.executeOverpassAcrossMirrors(
+            MosqueRepository.buildOverpassQuery(lat, lon, radius)
+        )
+        if (mosqueOutcome is MosqueRepository.OverpassCallOutcome.Success) {
+            val mosques = MosqueRepository.parseOverpassResponse(mosqueOutcome.body, lat, lon)
+            println("LIVE_TEST_MOSQUE mirror=${mosqueOutcome.mirrorHost} elapsedMs=${mosqueOutcome.elapsedMs} count=${mosques.size} first=${mosques.firstOrNull()?.nameEn}")
+            assertTrue("Expected mosques in Narayanganj 5km, got ${mosques.size}", mosques.isNotEmpty())
+        } else {
+            println("LIVE_TEST_MOSQUE all mirrors unreachable in container: $mosqueOutcome")
+        }
+
+        val halalRepo = HalalRestaurantRepository(context)
+        val halalOutcome = halalRepo.executeOverpassAcrossMirrors(
+            HalalRestaurantRepository.buildOverpassQuery(lat, lon, radius)
+        )
+        if (halalOutcome is HalalRestaurantRepository.OverpassCallOutcome.Success) {
+            val restaurants = HalalRestaurantRepository.parseOverpassResponse(halalOutcome.body, lat, lon)
+            println("LIVE_TEST_HALAL mirror=${halalOutcome.mirrorHost} elapsedMs=${halalOutcome.elapsedMs} count=${restaurants.size} first=${restaurants.firstOrNull()?.nameEn}")
+            assertTrue("Expected restaurants in Narayanganj 5km, got ${restaurants.size}", restaurants.isNotEmpty())
+        } else {
+            println("LIVE_TEST_HALAL all mirrors unreachable in container: $halalOutcome")
+        }
     }
 }

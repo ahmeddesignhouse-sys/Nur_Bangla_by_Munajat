@@ -1,8 +1,6 @@
 package com.example.ui.components
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
@@ -10,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,7 +43,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,30 +54,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.BuildConfig
 import com.example.util.BanglaUtils
 import com.example.util.tr
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.MapsInitializer
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.maps.android.compose.Circle
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker as GoogleMapMarker
-import com.google.maps.android.compose.MarkerState
-import com.google.maps.android.compose.rememberCameraPositionState
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -90,7 +68,6 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import java.io.File
 
-private const val MAP_TAG = "NearbyPlacesMapView"
 private const val MAP_MAX_LOADING_MS = 10_000L
 
 data class MapPlacePin(
@@ -104,37 +81,11 @@ data class MapPlacePin(
 )
 
 /**
- * Checks whether a real Google Maps SDK API key was configured via `.env` / Secrets panel.
- * Returns false for blank or placeholder values so the app automatically falls back to OpenStreetMap
- * (osmdroid) instead of rendering a blank grey Google Map.
- */
-fun hasValidGoogleMapsApiKey(apiKey: String = BuildConfig.MAPS_API_KEY): Boolean {
-    val trimmed = apiKey.trim()
-    if (trimmed.length < 20) return false
-    if (trimmed.equals("YOUR_GOOGLE_MAPS_API_KEY", ignoreCase = true)) return false
-    if (trimmed.contains("PLACEHOLDER", ignoreCase = true)) return false
-    if (trimmed.contains("DEFAULT_VALUE", ignoreCase = true)) return false
-    return trimmed.startsWith("AIza")
-}
-
-private fun canUseGoogleMaps(context: Context): Boolean {
-    if (!hasValidGoogleMapsApiKey(BuildConfig.MAPS_API_KEY)) return false
-    return try {
-        val status = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
-        status == ConnectionResult.SUCCESS
-    } catch (_: Exception) {
-        false
-    }
-}
-
-/**
- * Embedded in-app Map for Mosque Finder & Halal Restaurant Finder:
- * - Uses Google Maps SDK (Maps Compose) when a valid `MAPS_API_KEY` is configured and Play Services is available.
- * - Automatically falls back to OpenStreetMap (osmdroid) when no Maps API key is configured,
- *   guaranteeing real map tiles & markers instead of a blank grey screen.
- * - Shows a blue user location dot and a marker for every discovered mosque/restaurant.
- * - Tapping a marker displays a bottom card with name, distance in km, address, and Google Maps Directions button.
- * - Caps the map-loading overlay to max 10 seconds so slow connections never block interaction.
+ * 100% FREE embedded OpenStreetMap (osmdroid) view — no API key, no billing, no Google Maps SDK.
+ * - Displays user's blue GPS dot and a marker for every discovered Mosque or Halal Restaurant.
+ * - Tapping any marker opens a bottom detail card with name, distance in km, address, and a
+ *   Directions button that opens the phone's map app via geo: / Google Maps navigation intent.
+ * - Caps the tile-loading pill at max 10 seconds so slow connections never block interaction.
  */
 @Composable
 fun NearbyPlacesMapView(
@@ -146,58 +97,114 @@ fun NearbyPlacesMapView(
     isEnglish: Boolean,
     countBadgeText: String,
     pinColor: Color,
+    mirrorSourceLabel: String = "",
     onSelectPin: (String) -> Unit,
     onClearSelection: () -> Unit,
     onOpenDirections: (MapPlacePin) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val useGoogleMaps = remember(context) { canUseGoogleMaps(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val pinArgb = pinColor.toArgb()
 
-    var isMapLoading by remember(useGoogleMaps) { mutableStateOf(true) }
+    remember(context) {
+        configureOsmdroid(context)
+        true
+    }
 
-    // Never show the map loading spinner for more than 10 seconds on slow connections
-    LaunchedEffect(useGoogleMaps) {
-        isMapLoading = true
+    var isMapLoading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
         delay(MAP_MAX_LOADING_MS)
         isMapLoading = false
+    }
+
+    val userDrawable = remember(context) { createUserLocationDrawable(context) }
+    val normalPinDrawable = remember(context, pinArgb) { createPlacePinDrawable(context, pinArgb, selected = false) }
+    val selectedPinDrawable = remember(context, pinArgb) { createPlacePinDrawable(context, pinArgb, selected = true) }
+
+    val mapViewHolder = remember { mutableStateOf<MapView?>(null) }
+    val lastCameraSignature = remember { mutableStateOf("") }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapViewHolder.value?.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapViewHolder.value?.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapViewHolder.value?.onDetach()
+        }
     }
 
     val selectedPin = remember(pins, selectedPinId) {
         pins.firstOrNull { it.id == selectedPinId }
     }
 
-    val recenterAction = remember { mutableStateOf<(() -> Unit)?>(null) }
-
     Box(modifier = modifier.fillMaxSize()) {
-        if (useGoogleMaps) {
-            EmbeddedGoogleMapLayer(
-                userLat = userLat,
-                userLon = userLon,
-                pins = pins,
-                selectedPinId = selectedPinId,
-                pinColor = pinColor,
-                onSelectPin = onSelectPin,
-                onClearSelection = onClearSelection,
-                onMapReady = { isMapLoading = false },
-                onRegisterRecenter = { recenterAction.value = it }
-            )
-        } else {
-            EmbeddedOsmdroidMapLayer(
-                userLat = userLat,
-                userLon = userLon,
-                userLocationLabel = userLocationLabel,
-                pins = pins,
-                selectedPinId = selectedPinId,
-                pinColor = pinColor,
-                onSelectPin = onSelectPin,
-                onClearSelection = onClearSelection,
-                onMapReady = { isMapLoading = false },
-                onRegisterRecenter = { recenterAction.value = it }
-            )
-        }
+        AndroidView(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("embedded_places_map"),
+            factory = { ctx ->
+                MapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    isTilesScaledToDpi = true
+                    controller.setZoom(14.5)
+                    controller.setCenter(GeoPoint(userLat, userLon))
+                    mapViewHolder.value = this
+                    post { isMapLoading = false }
+                }
+            },
+            update = { mapView ->
+                mapView.overlays.clear()
 
-        // Top-left count & provider pill
+                val userPoint = GeoPoint(userLat, userLon)
+                val userMarker = Marker(mapView).apply {
+                    position = userPoint
+                    title = userLocationLabel
+                    icon = userDrawable
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    setOnMarkerClickListener { _, _ ->
+                        onClearSelection()
+                        mapView.controller.animateTo(userPoint)
+                        true
+                    }
+                }
+                mapView.overlays.add(userMarker)
+
+                for (pin in pins) {
+                    val isSelected = pin.id == selectedPinId
+                    val marker = Marker(mapView).apply {
+                        position = GeoPoint(pin.latitude, pin.longitude)
+                        title = pin.title
+                        snippet = pin.distanceLabel
+                        icon = if (isSelected) selectedPinDrawable else normalPinDrawable
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onSelectPin(pin.id)
+                            mapView.controller.animateTo(GeoPoint(pin.latitude, pin.longitude))
+                            true
+                        }
+                    }
+                    mapView.overlays.add(marker)
+                }
+
+                val signature = "${userLat}_${userLon}_${pins.size}_${pins.firstOrNull()?.id}"
+                if (lastCameraSignature.value != signature) {
+                    lastCameraSignature.value = signature
+                    fitCameraToPoints(mapView, userLat, userLon, pins)
+                }
+
+                mapView.invalidate()
+            }
+        )
+
+        // Top-left count badge
         Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
@@ -217,7 +224,11 @@ fun NearbyPlacesMapView(
 
         // Top-right recenter button
         FloatingActionButton(
-            onClick = { recenterAction.value?.invoke() },
+            onClick = {
+                mapViewHolder.value?.let { mv ->
+                    mv.controller.animateTo(GeoPoint(userLat, userLon), 15.0, 450L)
+                }
+            },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(12.dp)
@@ -233,7 +244,7 @@ fun NearbyPlacesMapView(
             )
         }
 
-        // Brief non-blocking map tile loading indicator (capped at max 10 seconds)
+        // Non-blocking tile loading indicator (max 10 seconds)
         if (isMapLoading) {
             Surface(
                 modifier = Modifier
@@ -262,7 +273,7 @@ fun NearbyPlacesMapView(
             }
         }
 
-        // Bottom hint pill when no marker is selected
+        // Bottom attribution + answering Overpass mirror badge
         if (selectedPin == null) {
             Surface(
                 modifier = Modifier
@@ -271,12 +282,12 @@ fun NearbyPlacesMapView(
                 shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
             ) {
-                val mapCredit = if (useGoogleMaps) "Google Maps" else "© OpenStreetMap"
+                val mirrorSuffix = if (mirrorSourceLabel.isNotBlank()) " • $mirrorSourceLabel" else ""
                 Text(
                     text = tr(
                         isEnglish,
-                        "পিনে ট্যাপ করে বিস্তারিত ও দিকনির্দেশনা দেখুন • $mapCredit",
-                        "Tap any pin for details & directions • $mapCredit"
+                        "পিনে ট্যাপ করে বিস্তারিত ও দিকনির্দেশনা দেখুন • © OpenStreetMap$mirrorSuffix",
+                        "Tap any pin for details & directions • © OpenStreetMap$mirrorSuffix"
                     ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -285,7 +296,7 @@ fun NearbyPlacesMapView(
             }
         }
 
-        // Selected pin bottom detail card with Name, Distance, Address & Google Maps Directions
+        // Selected pin bottom detail card
         selectedPin?.let { pin ->
             Card(
                 modifier = Modifier
@@ -388,8 +399,8 @@ fun NearbyPlacesMapView(
                         Text(
                             text = tr(
                                 isEnglish,
-                                "দিকনির্দেশনা (Google Maps)",
-                                "Directions (Google Maps)"
+                                "দিকনির্দেশনা (Directions)",
+                                "Directions"
                             ),
                             fontWeight = FontWeight.Bold
                         )
@@ -398,256 +409,6 @@ fun NearbyPlacesMapView(
             }
         }
     }
-}
-
-@Composable
-private fun EmbeddedGoogleMapLayer(
-    userLat: Double,
-    userLon: Double,
-    pins: List<MapPlacePin>,
-    selectedPinId: String?,
-    pinColor: Color,
-    onSelectPin: (String) -> Unit,
-    onClearSelection: () -> Unit,
-    onMapReady: () -> Unit,
-    onRegisterRecenter: (() -> Unit) -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val hasLocationPermission = remember(context) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-    }
-
-    var mapInitialized by remember { mutableStateOf(false) }
-
-    LaunchedEffect(context) {
-        runCatching { MapsInitializer.initialize(context.applicationContext) }
-            .onSuccess { mapInitialized = true }
-            .onFailure { Log.w(MAP_TAG, "MapsInitializer warning: ${it.message}") }
-    }
-
-    val userLatLng = remember(userLat, userLon) { LatLng(userLat, userLon) }
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(userLatLng, 14f)
-    }
-
-    val baseHue = remember(pinColor) {
-        val hsv = FloatArray(3)
-        AndroidColor.colorToHSV(pinColor.toArgb(), hsv)
-        hsv[0]
-    }
-
-    LaunchedEffect(userLat, userLon) {
-        onRegisterRecenter {
-            scope.launch {
-                runCatching {
-                    cameraPositionState.animate(
-                        CameraUpdateFactory.newLatLngZoom(LatLng(userLat, userLon), 15f),
-                        450
-                    )
-                }
-            }
-        }
-    }
-
-    // Fit camera to user location + nearest markers once map is loaded and pins change
-    LaunchedEffect(mapInitialized, userLat, userLon, pins.size, pins.firstOrNull()?.id) {
-        if (!mapInitialized) return@LaunchedEffect
-        val focusPins = pins.take(12)
-        if (focusPins.isEmpty()) {
-            runCatching {
-                cameraPositionState.move(CameraUpdateFactory.newLatLngZoom(userLatLng, 14f))
-            }
-        } else {
-            runCatching {
-                val builder = LatLngBounds.Builder().include(userLatLng)
-                focusPins.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
-                cameraPositionState.animate(CameraUpdateFactory.newLatLngBounds(builder.build(), 120), 400)
-            }.onFailure {
-                runCatching {
-                    cameraPositionState.move(CameraUpdateFactory.newLatLngZoom(userLatLng, 13.5f))
-                }
-            }
-        }
-    }
-
-    GoogleMap(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("embedded_google_map"),
-        cameraPositionState = cameraPositionState,
-        properties = MapProperties(
-            isMyLocationEnabled = hasLocationPermission
-        ),
-        uiSettings = MapUiSettings(
-            myLocationButtonEnabled = false,
-            zoomControlsEnabled = false,
-            mapToolbarEnabled = false,
-            compassEnabled = true
-        ),
-        onMapLoaded = {
-            mapInitialized = true
-            onMapReady()
-        },
-        onMapClick = { onClearSelection() }
-    ) {
-        // Explicit blue location indicator so user position is always clearly visible
-        Circle(
-            center = userLatLng,
-            radius = 55.0,
-            fillColor = Color(0x441976D2),
-            strokeColor = Color(0xFF1565C0),
-            strokeWidth = 4f
-        )
-
-        for (pin in pins) {
-            val isSelected = pin.id == selectedPinId
-            val markerState = remember(pin.id, pin.latitude, pin.longitude) {
-                MarkerState(position = LatLng(pin.latitude, pin.longitude))
-            }
-            val iconDescriptor = if (mapInitialized) {
-                runCatching {
-                    BitmapDescriptorFactory.defaultMarker(
-                        if (isSelected) BitmapDescriptorFactory.HUE_ORANGE else baseHue
-                    )
-                }.getOrNull()
-            } else {
-                null
-            }
-            GoogleMapMarker(
-                state = markerState,
-                title = pin.title,
-                snippet = pin.distanceLabel,
-                icon = iconDescriptor,
-                zIndex = if (isSelected) 2f else 1f,
-                onClick = {
-                    onSelectPin(pin.id)
-                    scope.launch {
-                        runCatching {
-                            cameraPositionState.animate(
-                                CameraUpdateFactory.newLatLng(LatLng(pin.latitude, pin.longitude)),
-                                350
-                            )
-                        }
-                    }
-                    true
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmbeddedOsmdroidMapLayer(
-    userLat: Double,
-    userLon: Double,
-    userLocationLabel: String,
-    pins: List<MapPlacePin>,
-    selectedPinId: String?,
-    pinColor: Color,
-    onSelectPin: (String) -> Unit,
-    onClearSelection: () -> Unit,
-    onMapReady: () -> Unit,
-    onRegisterRecenter: (() -> Unit) -> Unit
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val pinArgb = pinColor.toArgb()
-
-    remember(context) {
-        configureOsmdroid(context)
-        true
-    }
-
-    val userDrawable = remember(context) { createUserLocationDrawable(context) }
-    val normalPinDrawable = remember(context, pinArgb) { createPlacePinDrawable(context, pinArgb, selected = false) }
-    val selectedPinDrawable = remember(context, pinArgb) { createPlacePinDrawable(context, pinArgb, selected = true) }
-
-    val mapViewHolder = remember { mutableStateOf<MapView?>(null) }
-    val lastCameraSignature = remember { mutableStateOf("") }
-
-    LaunchedEffect(userLat, userLon) {
-        onRegisterRecenter {
-            mapViewHolder.value?.let { mv ->
-                mv.controller.animateTo(GeoPoint(userLat, userLon), 15.0, 450L)
-            }
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> mapViewHolder.value?.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapViewHolder.value?.onPause()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            mapViewHolder.value?.onDetach()
-        }
-    }
-
-    AndroidView(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("embedded_places_map"),
-        factory = { ctx ->
-            MapView(ctx).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
-                setMultiTouchControls(true)
-                isTilesScaledToDpi = true
-                controller.setZoom(14.5)
-                controller.setCenter(GeoPoint(userLat, userLon))
-                mapViewHolder.value = this
-                post { onMapReady() }
-            }
-        },
-        update = { mapView ->
-            mapView.overlays.clear()
-
-            val userPoint = GeoPoint(userLat, userLon)
-            val userMarker = Marker(mapView).apply {
-                position = userPoint
-                title = userLocationLabel
-                icon = userDrawable
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                setOnMarkerClickListener { _, _ ->
-                    onClearSelection()
-                    mapView.controller.animateTo(userPoint)
-                    true
-                }
-            }
-            mapView.overlays.add(userMarker)
-
-            for (pin in pins) {
-                val isSelected = pin.id == selectedPinId
-                val marker = Marker(mapView).apply {
-                    position = GeoPoint(pin.latitude, pin.longitude)
-                    title = pin.title
-                    snippet = pin.distanceLabel
-                    icon = if (isSelected) selectedPinDrawable else normalPinDrawable
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    setOnMarkerClickListener { _, _ ->
-                        onSelectPin(pin.id)
-                        mapView.controller.animateTo(GeoPoint(pin.latitude, pin.longitude))
-                        true
-                    }
-                }
-                mapView.overlays.add(marker)
-            }
-
-            val signature = "${userLat}_${userLon}_${pins.size}_${pins.firstOrNull()?.id}"
-            if (lastCameraSignature.value != signature) {
-                lastCameraSignature.value = signature
-                fitCameraToPoints(mapView, userLat, userLon, pins)
-            }
-
-            mapView.invalidate()
-        }
-    )
 }
 
 private fun configureOsmdroid(context: Context) {
