@@ -413,7 +413,7 @@ fun NearbyPlacesMapView(
 
 private fun configureOsmdroid(context: Context) {
     val config = Configuration.getInstance()
-    config.userAgentValue = "NurBanglaAndroid/1.7 (${context.packageName})"
+    config.userAgentValue = "NurBanglaAndroid/1.8 (${context.packageName})"
     val basePath = File(context.cacheDir, "osmdroid")
     val tileCache = File(basePath, "tiles")
     if (!tileCache.exists()) {

@@ -4,21 +4,15 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.data.local.BundledPlacesCatalog
 import com.example.util.LocationHelper
 import com.example.util.PrayerTimeCalculator
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.atan2
@@ -43,6 +37,7 @@ data class NearbyMosque(
 
 sealed class MosqueSearchResult {
     data object Offline : MosqueSearchResult()
+
     data class Success(
         val mosques: List<NearbyMosque>,
         val requestedRadiusMeters: Int = 5000,
@@ -53,16 +48,28 @@ sealed class MosqueSearchResult {
         val wasExpanded: Boolean
             get() = effectiveRadiusMeters > requestedRadiusMeters
     }
-    data class Error(val messageBn: String, val messageEn: String) : MosqueSearchResult()
+
+    /**
+     * Returned when every online Overpass mirror + Nominatim failed within the 15s hard cap.
+     * Always provides the curated local Dhaka/Narayanganj mosque list sorted by distance
+     * PLUS the exact diagnostic log so the user is never left with an empty screen.
+     */
+    data class FallbackBundled(
+        val mosques: List<NearbyMosque>,
+        val diagnostics: List<SourceAttemptDiagnostic>,
+        val timedOutOverall: Boolean = false
+    ) : MosqueSearchResult()
+
+    data class Error(
+        val messageBn: String,
+        val messageEn: String,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+    ) : MosqueSearchResult()
 }
 
 /**
- * 100% FREE nearby mosque discovery using OpenStreetMap Overpass API:
- * - Tries 3 Overpass mirrors in order (1 primary + 2 retries total) via HTTP POST body (`data=...`).
- * - 30-second read timeout per server, 25-second Overpass query timeout.
- * - Logs and returns which mirror answered.
- * - Auto-expands radius (2 km -> 5 km -> 10 km -> 20 km) if a step truly returns 0 mosques.
- * - 10-minute in-memory cache, Dispatchers.IO execution, cooperative cancellation on screen exit.
+ * 100% FREE nearby mosque discovery using OpenStreetMap Overpass API (5 mirrors) + Nominatim fallback
+ * + curated offline Dhaka/Narayanganj fallback. Zero API keys, zero billing, hard 15s cap.
  */
 class MosqueRepository(private val context: Context) {
 
@@ -105,19 +112,33 @@ class MosqueRepository(private val context: Context) {
         }
 
         val radiusLadder = buildRadiusLadder(radiusMeters)
-        var anyMirrorAnswered = false
+        val startedAllMs = System.currentTimeMillis()
+        var anyOnlineAnswered = false
         var lastAnsweredMirror = ""
-        var lastException: Exception? = null
+        var lastDiagnostics: List<SourceAttemptDiagnostic> = emptyList()
+        var timedOutOverall = false
 
         for (stepRadius in radiusLadder) {
             currentCoroutineContext().ensureActive()
+            val remainingMs = FreePlacesNetworkEngine.TOTAL_SEARCH_DEADLINE_MS - (System.currentTimeMillis() - startedAllMs)
+            if (remainingMs < 1_000L) {
+                timedOutOverall = true
+                break
+            }
 
             val query = buildOverpassQuery(userLat, userLon, stepRadius)
-            val outcome = executeOverpassAcrossMirrors(query)
+            val outcome = FreePlacesNetworkEngine.fetchOverpassThenNominatim(
+                overpassQuery = query,
+                nominatimQuery = "mosque",
+                lat = userLat,
+                lon = userLon,
+                radiusMeters = stepRadius,
+                totalDeadlineMs = remainingMs
+            )
 
             when (outcome) {
-                is OverpassCallOutcome.Success -> {
-                    anyMirrorAnswered = true
+                is FreePlacesFetchOutcome.OverpassSuccess -> {
+                    anyOnlineAnswered = true
                     lastAnsweredMirror = outcome.mirrorHost
                     val maxKm = stepRadius / 1000.0
                     val mosques = parseOverpassResponse(outcome.body, userLat, userLon)
@@ -138,15 +159,35 @@ class MosqueRepository(private val context: Context) {
                     }
                     // Truly 0 mosques in this radius -> auto-expand to next radius step
                 }
-                is OverpassCallOutcome.AllMirrorsFailed -> {
-                    lastException = outcome.lastException
-                    // All 3 mirrors failed -> stop immediately, do NOT loop radii
+
+                is FreePlacesFetchOutcome.NominatimSuccess -> {
+                    anyOnlineAnswered = true
+                    lastAnsweredMirror = "nominatim.openstreetmap.org"
+                    val maxKm = stepRadius / 1000.0
+                    val mosques = parseNominatimResponse(outcome.body, userLat, userLon, maxDistanceKm = maxKm + 0.5)
+                    if (mosques.isNotEmpty()) {
+                        val success = MosqueSearchResult.Success(
+                            mosques = mosques,
+                            requestedRadiusMeters = radiusMeters,
+                            effectiveRadiusMeters = stepRadius,
+                            answeredMirror = lastAnsweredMirror,
+                            fromCache = false
+                        )
+                        putCachedResult(cacheKey, success)
+                        return@withContext success
+                    }
+                }
+
+                is FreePlacesFetchOutcome.AllFailed -> {
+                    lastDiagnostics = outcome.diagnostics
+                    timedOutOverall = outcome.timedOutOverall
+                    // All online sources failed -> stop looping radii and serve bundled list
                     break
                 }
             }
         }
 
-        if (anyMirrorAnswered) {
+        if (anyOnlineAnswered) {
             return@withContext MosqueSearchResult.Success(
                 mosques = emptyList(),
                 requestedRadiusMeters = radiusMeters,
@@ -155,93 +196,57 @@ class MosqueRepository(private val context: Context) {
             )
         }
 
-        if (!isOnline() || lastException is UnknownHostException) {
-            MosqueSearchResult.Offline
-        } else {
-            MosqueSearchResult.Error(
-                messageBn = "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                messageEn = "All 3 servers are busy, please try again in 1 minute"
-            )
+        if (!isOnline()) {
+            return@withContext MosqueSearchResult.Offline
         }
+
+        // Every online source failed -> NEVER show an empty screen; return bundled Dhaka+Narayanganj mosques + real diagnostics
+        MosqueSearchResult.FallbackBundled(
+            mosques = BundledPlacesCatalog.mosquesSortedByDistance(userLat, userLon),
+            diagnostics = lastDiagnostics,
+            timedOutOverall = timedOutOverall
+        )
     }
 
     internal sealed class OverpassCallOutcome {
         data class Success(val body: String, val mirrorHost: String, val elapsedMs: Long) : OverpassCallOutcome()
-        data class AllMirrorsFailed(val lastException: Exception?) : OverpassCallOutcome()
+        data class AllMirrorsFailed(
+            val lastException: Exception?,
+            val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+        ) : OverpassCallOutcome()
     }
 
-    internal suspend fun executeOverpassAcrossMirrors(query: String): OverpassCallOutcome {
-        var lastException: Exception? = null
-
-        // Try all 3 mirrors IN ORDER (1 initial + 2 retries total)
-        for ((index, endpoint) in OVERPASS_MIRRORS.withIndex()) {
-            currentCoroutineContext().ensureActive()
-            val mirrorHost = runCatching { URL(endpoint).host }.getOrDefault(endpoint)
-            val startedMs = System.currentTimeMillis()
-            runCatching {
-                Log.d(TAG, "Overpass mosque POST attempt #${index + 1}/3 -> $endpoint")
-            }
-            try {
-                val body = postOverpassQueryCancellable(endpoint, query)
-                validateOverpassJsonBody(body)
-                val elapsedMs = System.currentTimeMillis() - startedMs
-                runCatching {
-                    Log.i(TAG, "Overpass mosque mirror answered: $mirrorHost in ${elapsedMs}ms (${body.length} chars)")
-                }
-                return OverpassCallOutcome.Success(body = body, mirrorHost = mirrorHost, elapsedMs = elapsedMs)
-            } catch (ce: CancellationException) {
-                throw ce
-            } catch (e: Exception) {
-                lastException = e
-                val elapsedMs = System.currentTimeMillis() - startedMs
-                runCatching {
-                    Log.w(TAG, "Overpass mosque mirror $mirrorHost failed in ${elapsedMs}ms: ${e.javaClass.simpleName}: ${e.message}")
-                }
-            }
-        }
-
-        return OverpassCallOutcome.AllMirrorsFailed(lastException)
-    }
-
-    private suspend fun postOverpassQueryCancellable(endpointUrl: String, query: String): String {
-        val conn = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            doOutput = true
-            useCaches = false
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("User-Agent", USER_AGENT)
-        }
-
-        val job = currentCoroutineContext()[Job]
-        val cancelHandle = job?.invokeOnCompletion { cause ->
-            if (cause != null) {
-                runCatching { conn.disconnect() }
-            }
-        }
-
-        return try {
-            currentCoroutineContext().ensureActive()
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                writer.write("data=" + URLEncoder.encode(query, "UTF-8"))
-                writer.flush()
-            }
-            currentCoroutineContext().ensureActive()
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                throw HttpStatusException(code)
-            }
-            conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally {
-            cancelHandle?.dispose()
-            runCatching { conn.disconnect() }
+    internal suspend fun executeOverpassAcrossMirrors(
+        query: String,
+        lat: Double = 23.6238,
+        lon: Double = 90.5000,
+        radiusMeters: Int = 5000
+    ): OverpassCallOutcome {
+        return when (
+            val outcome = FreePlacesNetworkEngine.fetchOverpassThenNominatim(
+                overpassQuery = query,
+                nominatimQuery = "mosque",
+                lat = lat,
+                lon = lon,
+                radiusMeters = radiusMeters
+            )
+        ) {
+            is FreePlacesFetchOutcome.OverpassSuccess -> OverpassCallOutcome.Success(
+                body = outcome.body,
+                mirrorHost = outcome.mirrorHost,
+                elapsedMs = outcome.elapsedMs
+            )
+            is FreePlacesFetchOutcome.NominatimSuccess -> OverpassCallOutcome.Success(
+                body = outcome.body,
+                mirrorHost = "nominatim.openstreetmap.org",
+                elapsedMs = outcome.elapsedMs
+            )
+            is FreePlacesFetchOutcome.AllFailed -> OverpassCallOutcome.AllMirrorsFailed(
+                lastException = outcome.lastException,
+                diagnostics = outcome.diagnostics
+            )
         }
     }
-
-    internal class HttpStatusException(val statusCode: Int) : IllegalStateException("HTTP $statusCode")
 
     private data class CacheEntry(
         val savedAtMs: Long,
@@ -250,40 +255,17 @@ class MosqueRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "MosqueRepository"
-        private const val USER_AGENT = "NurBanglaAndroid/1.7 (com.noorbangla.islam; OpenStreetMap Overpass client)"
-        private const val CONNECT_TIMEOUT_MS = 8_000
-        private const val READ_TIMEOUT_MS = 30_000
         const val CACHE_TTL_MS = 10 * 60 * 1000L
 
         val RADIUS_STEPS_METERS = listOf(2000, 5000, 10000, 20000)
 
-        // Three FREE Overpass mirrors tried strictly in order (1 primary + 2 retries)
-        val OVERPASS_MIRRORS = listOf(
-            "https://overpass-api.de/api/interpreter",
-            "https://overpass.kumi.systems/api/interpreter",
-            "https://overpass.private.coffee/api/interpreter"
-        )
+        // Five FREE Overpass mirrors tried in priority order
+        val OVERPASS_MIRRORS: List<String> = FreePlacesNetworkEngine.OVERPASS_MIRRORS
 
         private val resultCache = ConcurrentHashMap<String, CacheEntry>()
 
-        internal fun validateOverpassJsonBody(body: String) {
-            val trimmed = body.trim()
-            if (!trimmed.startsWith("{")) {
-                throw IllegalStateException("Overpass returned non-JSON body")
-            }
-            val root = JSONObject(trimmed)
-            val elements = root.optJSONArray("elements")
-                ?: throw IllegalStateException("Overpass JSON missing elements array")
-            val remark = root.optString("remark", "").trim()
-            // Overpass can return HTTP 200 with empty elements + runtime error remark when overloaded
-            if (elements.length() == 0 && remark.isNotBlank() &&
-                (remark.contains("timeout", ignoreCase = true) ||
-                    remark.contains("error", ignoreCase = true) ||
-                    remark.contains("memory", ignoreCase = true))
-            ) {
-                throw IllegalStateException("Overpass remark error: $remark")
-            }
-        }
+        internal fun validateOverpassJsonBody(body: String) =
+            FreePlacesNetworkEngine.validateOverpassJsonBody(body)
 
         internal fun buildCacheKey(lat: Double, lon: Double, radiusMeters: Int): String {
             val latGrid = (lat * 500).toInt()
@@ -313,9 +295,6 @@ class MosqueRepository(private val context: Context) {
             return (listOf(sanitized) + RADIUS_STEPS_METERS.filter { it > sanitized }).distinct()
         }
 
-        /**
-         * Simple, proven Overpass QL query for Muslim places of worship (node & way).
-         */
         fun buildOverpassQuery(lat: Double, lon: Double, radiusMeters: Int): String {
             val latStr = String.format(Locale.US, "%.5f", lat)
             val lonStr = String.format(Locale.US, "%.5f", lon)

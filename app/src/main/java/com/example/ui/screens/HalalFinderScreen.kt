@@ -78,13 +78,17 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.local.BundledPlacesCatalog
 import com.example.data.repository.HalalRestaurantRepository
 import com.example.data.repository.HalalSearchResult
 import com.example.data.repository.MosqueRepository
 import com.example.data.repository.NearbyHalalRestaurant
+import com.example.data.repository.SourceAttemptDiagnostic
+import com.example.ui.components.FallbackSavedListBanner
 import com.example.ui.components.MapPlacePin
 import com.example.ui.components.NearbyPlacesMapView
 import com.example.ui.components.formatRadiusExpansionBanner
+import com.example.ui.components.openExternalGoogleMapsNearMe
 import com.example.ui.theme.StatusOnTimeColor
 import com.example.util.BanglaUtils
 import com.example.util.LocalAppLanguage
@@ -102,16 +106,21 @@ private sealed class HalalScreenState {
     data object NeedsPermission : HalalScreenState()
     data object LocationOff : HalalScreenState()
     data object Loading : HalalScreenState()
-    data object Offline : HalalScreenState()
     data class Loaded(
         val restaurants: List<NearbyHalalRestaurant>,
         val requestedRadiusMeters: Int,
         val effectiveRadiusMeters: Int,
-        val answeredMirror: String = ""
+        val answeredMirror: String = "",
+        val isBundledFallback: Boolean = false,
+        val isOfflineFallback: Boolean = false,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
     ) : HalalScreenState() {
-        val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
+        val wasExpanded: Boolean get() = !isBundledFallback && effectiveRadiusMeters > requestedRadiusMeters
     }
-    data class Error(val message: String) : HalalScreenState()
+    data class Error(
+        val message: String,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+    ) : HalalScreenState()
 }
 
 @Composable
@@ -154,36 +163,86 @@ fun HalalFinderScreen(
         }
     }
 
+    fun showOfflineBundledFallback() {
+        val refLat = userCoords?.first ?: fallbackLat ?: 23.6238
+        val refLon = userCoords?.second ?: fallbackLon ?: 90.5000
+        viewMode = HalalViewMode.LIST
+        screenState = HalalScreenState.Loaded(
+            restaurants = BundledPlacesCatalog.halalRestaurantsSorted(refLat, refLon),
+            requestedRadiusMeters = radiusMeters,
+            effectiveRadiusMeters = radiusMeters,
+            answeredMirror = "",
+            isBundledFallback = true,
+            isOfflineFallback = true,
+            diagnostics = listOf(
+                SourceAttemptDiagnostic(
+                    sourceName = "network",
+                    httpStatus = null,
+                    elapsedMs = 20L,
+                    errorKind = "no internet"
+                )
+            )
+        )
+    }
+
+    fun applyHalalSearchResult(res: HalalSearchResult) {
+        when (res) {
+            is HalalSearchResult.Offline -> showOfflineBundledFallback()
+            is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
+                restaurants = res.restaurants,
+                requestedRadiusMeters = res.requestedRadiusMeters,
+                effectiveRadiusMeters = res.effectiveRadiusMeters,
+                answeredMirror = res.answeredMirror
+            )
+            is HalalSearchResult.FallbackBundled -> {
+                viewMode = HalalViewMode.LIST
+                screenState = HalalScreenState.Loaded(
+                    restaurants = res.restaurants,
+                    requestedRadiusMeters = radiusMeters,
+                    effectiveRadiusMeters = radiusMeters,
+                    answeredMirror = "",
+                    isBundledFallback = true,
+                    isOfflineFallback = false,
+                    diagnostics = res.diagnostics
+                )
+            }
+            is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
+                message = if (isEn) res.messageEn else res.messageBn,
+                diagnostics = res.diagnostics
+            )
+        }
+    }
+
     fun loadHalalPlacesFor(lat: Double, lon: Double, radius: Int, forceRefresh: Boolean = false) {
         activeSearchJob?.cancel()
         activeSearchJob = scope.launch {
             if (!repository.isOnline()) {
-                screenState = HalalScreenState.Offline
+                showOfflineBundledFallback()
                 return@launch
             }
             screenState = HalalScreenState.Loading
             selectedMapPinId = null
             try {
-                when (val res = repository.findNearbyHalalRestaurants(lat, lon, radius, forceRefresh = forceRefresh)) {
-                    is HalalSearchResult.Offline -> screenState = HalalScreenState.Offline
-                    is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
-                        restaurants = res.restaurants,
-                        requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters,
-                        answeredMirror = res.answeredMirror
-                    )
-                    is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
-                        if (isEn) res.messageEn else res.messageBn
-                    )
-                }
+                val res = repository.findNearbyHalalRestaurants(lat, lon, radius, forceRefresh = forceRefresh)
+                applyHalalSearchResult(res)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (_: Exception) {
-                screenState = HalalScreenState.Error(
-                    tr(
-                        isEn,
-                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                        "All 3 servers are busy, please try again in 1 minute"
+            } catch (e: Exception) {
+                viewMode = HalalViewMode.LIST
+                screenState = HalalScreenState.Loaded(
+                    restaurants = BundledPlacesCatalog.halalRestaurantsSorted(lat, lon),
+                    requestedRadiusMeters = radius,
+                    effectiveRadiusMeters = radius,
+                    isBundledFallback = true,
+                    isOfflineFallback = !repository.isOnline(),
+                    diagnostics = listOf(
+                        SourceAttemptDiagnostic(
+                            sourceName = "search",
+                            httpStatus = null,
+                            elapsedMs = 0L,
+                            errorKind = e.javaClass.simpleName,
+                            detail = e.message.orEmpty()
+                        )
                     )
                 )
             }
@@ -194,7 +253,7 @@ fun HalalFinderScreen(
         // Check offline immediately (< 50 ms) before even touching GPS
         if (!repository.isOnline()) {
             activeSearchJob?.cancel()
-            screenState = HalalScreenState.Offline
+            showOfflineBundledFallback()
             return
         }
         if (!hasLocationPermission()) {
@@ -248,33 +307,31 @@ fun HalalFinderScreen(
             }
 
             try {
-                when (
-                    val res = repository.findNearbyHalalRestaurants(
-                        userLat = resolved.latitude,
-                        userLon = resolved.longitude,
-                        radiusMeters = radiusMeters,
-                        forceRefresh = forceRefresh
-                    )
-                ) {
-                    is HalalSearchResult.Offline -> screenState = HalalScreenState.Offline
-                    is HalalSearchResult.Success -> screenState = HalalScreenState.Loaded(
-                        restaurants = res.restaurants,
-                        requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters,
-                        answeredMirror = res.answeredMirror
-                    )
-                    is HalalSearchResult.Error -> screenState = HalalScreenState.Error(
-                        if (isEn) res.messageEn else res.messageBn
-                    )
-                }
+                val res = repository.findNearbyHalalRestaurants(
+                    userLat = resolved.latitude,
+                    userLon = resolved.longitude,
+                    radiusMeters = radiusMeters,
+                    forceRefresh = forceRefresh
+                )
+                applyHalalSearchResult(res)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (_: Exception) {
-                screenState = HalalScreenState.Error(
-                    tr(
-                        isEn,
-                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                        "All 3 servers are busy, please try again in 1 minute"
+            } catch (e: Exception) {
+                viewMode = HalalViewMode.LIST
+                screenState = HalalScreenState.Loaded(
+                    restaurants = BundledPlacesCatalog.halalRestaurantsSorted(resolved.latitude, resolved.longitude),
+                    requestedRadiusMeters = radiusMeters,
+                    effectiveRadiusMeters = radiusMeters,
+                    isBundledFallback = true,
+                    isOfflineFallback = !repository.isOnline(),
+                    diagnostics = listOf(
+                        SourceAttemptDiagnostic(
+                            sourceName = "search",
+                            httpStatus = null,
+                            elapsedMs = 0L,
+                            errorKind = e.javaClass.simpleName,
+                            detail = e.message.orEmpty()
+                        )
                     )
                 )
             }
@@ -515,21 +572,6 @@ fun HalalFinderScreen(
                 )
             }
 
-            is HalalScreenState.Offline -> {
-                HalalStatusCard(
-                    icon = Icons.Default.WifiOff,
-                    title = tr(isEn, "ইন্টারনেট নেই", "No Internet Connection"),
-                    body = tr(
-                        isEn,
-                        "হালাল রেস্টুরেন্ট খুঁজতে ও ম্যাপ দেখতে ইন্টারনেট চালু করে আবার চেষ্টা করুন।",
-                        "Turn on internet connection to search nearby halal restaurants and view the map, then retry."
-                    ),
-                    primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
-                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
-                    buttonTag = "halal_offline_retry"
-                )
-            }
-
             is HalalScreenState.Loading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -537,7 +579,8 @@ fun HalalFinderScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(horizontal = 24.dp)
                     ) {
                         CircularProgressIndicator()
                         Text(
@@ -547,21 +590,37 @@ fun HalalFinderScreen(
                                 "Searching for nearby halal restaurants..."
                             ),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = tr(
+                                isEn,
+                                "সর্বোচ্চ ১৫ সেকেন্ডের মধ্যে ফলাফল দেখানো হবে",
+                                "Results or saved list will load within 15 seconds"
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
             }
 
             is HalalScreenState.Error -> {
+                val diagSummary = if (state.diagnostics.isNotEmpty()) {
+                    state.diagnostics.joinToString("\n") { it.formatLine(isEn) }
+                } else {
+                    tr(
+                        isEn,
+                        "অবস্থান যাচাই করে আবার চেষ্টা করুন অথবা সরাসরি Google Maps-এ খুঁজুন।",
+                        "Please verify location and retry, or open directly in Google Maps."
+                    )
+                }
                 HalalStatusCard(
                     icon = Icons.Default.Restaurant,
                     title = state.message,
-                    body = tr(
-                        isEn,
-                        "ওপেনস্ট্রিটম্যাপ সার্ভার থেকে তথ্য আনতে সময় লাগছে। কিছুক্ষণ পর আবার চেষ্টা করুন।",
-                        "Could not get a timely response from the map server. Please try again."
-                    ),
+                    body = diagSummary,
                     primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
                     onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "halal_error_retry"
@@ -571,6 +630,27 @@ fun HalalFinderScreen(
             is HalalScreenState.Loaded -> {
                 val filtered = remember(state.restaurants, searchQuery) {
                     HalalRestaurantRepository.filterRestaurants(state.restaurants, searchQuery)
+                }
+
+                // Fallback banner with real server diagnostics + Retry + Open in Google Maps
+                if (state.isBundledFallback) {
+                    FallbackSavedListBanner(
+                        isOffline = state.isOfflineFallback,
+                        diagnostics = state.diagnostics,
+                        isEnglish = isEn,
+                        onRetry = { detectGpsAndLoad(forceRefresh = true) },
+                        onOpenGoogleMaps = {
+                            openExternalGoogleMapsNearMe(
+                                context = context,
+                                latitude = userCoords?.first ?: fallbackLat,
+                                longitude = userCoords?.second ?: fallbackLon,
+                                queryTerm = "halal restaurant near me",
+                                isEnglish = isEn,
+                                onStatusMessage = onStatusMessage
+                            )
+                        },
+                        testTagPrefix = "halal"
+                    )
                 }
 
                 // Auto-expanded radius notice banner
@@ -603,7 +683,8 @@ fun HalalFinderScreen(
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -848,10 +929,7 @@ private fun HalalRestaurantCard(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = "$distStr ($dirStr)",
                         style = MaterialTheme.typography.labelSmall,
@@ -861,7 +939,7 @@ private fun HalalRestaurantCard(
                     place.openingHours?.let { hours ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Schedule,
@@ -872,8 +950,7 @@ private fun HalalRestaurantCard(
                             Text(
                                 text = hours,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

@@ -283,12 +283,14 @@ class NoorV17FixTest {
         assertFalse(com.example.util.LocationHelper.isValidCoordinate(Double.NaN, 90.5))
         assertTrue(com.example.util.LocationHelper.isValidCoordinate(23.6238, 90.5000))
 
-        // 2. Exact 3 FREE Overpass mirrors in strict order
+        // 2. Exact 5 FREE Overpass mirrors in strict order (expanded in v1.8)
         assertEquals(
             listOf(
                 "https://overpass-api.de/api/interpreter",
                 "https://overpass.kumi.systems/api/interpreter",
-                "https://overpass.private.coffee/api/interpreter"
+                "https://overpass.private.coffee/api/interpreter",
+                "https://overpass.nchc.org.tw/api/interpreter",
+                "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
             ),
             MosqueRepository.OVERPASS_MIRRORS
         )
@@ -388,7 +390,11 @@ class NoorV17FixTest {
             MosqueRepository.buildOverpassQuery(lat, lon, radius)
         )
         if (mosqueOutcome is MosqueRepository.OverpassCallOutcome.Success) {
-            val mosques = MosqueRepository.parseOverpassResponse(mosqueOutcome.body, lat, lon)
+            val mosques = if (mosqueOutcome.mirrorHost == "nominatim.openstreetmap.org") {
+                MosqueRepository.parseNominatimResponse(mosqueOutcome.body, lat, lon, radius / 1000.0 + 1.0)
+            } else {
+                MosqueRepository.parseOverpassResponse(mosqueOutcome.body, lat, lon)
+            }
             println("LIVE_TEST_MOSQUE mirror=${mosqueOutcome.mirrorHost} elapsedMs=${mosqueOutcome.elapsedMs} count=${mosques.size} first=${mosques.firstOrNull()?.nameEn}")
             assertTrue("Expected mosques in Narayanganj 5km, got ${mosques.size}", mosques.isNotEmpty())
         } else {
@@ -400,7 +406,11 @@ class NoorV17FixTest {
             HalalRestaurantRepository.buildOverpassQuery(lat, lon, radius)
         )
         if (halalOutcome is HalalRestaurantRepository.OverpassCallOutcome.Success) {
-            val restaurants = HalalRestaurantRepository.parseOverpassResponse(halalOutcome.body, lat, lon)
+            val restaurants = if (halalOutcome.mirrorHost == "nominatim.openstreetmap.org") {
+                HalalRestaurantRepository.parseNominatimResponse(halalOutcome.body, lat, lon, radius / 1000.0 + 1.0, false)
+            } else {
+                HalalRestaurantRepository.parseOverpassResponse(halalOutcome.body, lat, lon)
+            }
             println("LIVE_TEST_HALAL mirror=${halalOutcome.mirrorHost} elapsedMs=${halalOutcome.elapsedMs} count=${restaurants.size} first=${restaurants.firstOrNull()?.nameEn}")
             assertTrue("Expected restaurants in Narayanganj 5km, got ${restaurants.size}", restaurants.isNotEmpty())
         } else {

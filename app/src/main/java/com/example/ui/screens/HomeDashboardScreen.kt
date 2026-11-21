@@ -396,7 +396,7 @@ fun HomeDashboardScreen(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
@@ -418,6 +418,7 @@ fun HomeDashboardScreen(
 
                         Surface(
                             modifier = Modifier
+                                .weight(1f, fill = false)
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable { showMethodSheet = true },
                             color = if (isDarkSurface) Color(0xFF263631) else Color(0xFFF0F5F3)
@@ -446,16 +447,12 @@ fun HomeDashboardScreen(
                         }
                     }
 
-                    // Large bold current prayer name + start–end time window
-                    Row(
+                    // Large bold current prayer name + start–end time window (full width, never squeezed)
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = currentWaqt?.title(isEn)
                                     ?: tr(isEn, "বিরতি সময়", "Interval Time"),
@@ -475,34 +472,52 @@ fun HomeDashboardScreen(
                             }
                         }
 
-                        // Live Countdown block on right
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = if (next != null) {
-                                    "${tr(isEn, "পরবর্তী", "Next")}: ${next.waqt.title(isEn)}"
-                                } else {
-                                    tr(isEn, "পরবর্তী ওয়াক্ত", "Next Prayer")
-                                },
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = subInk
-                            )
-                            Text(
-                                text = if (next != null) {
-                                    BanglaUtils.formatCountdown(next.remainingSeconds, isEn)
-                                } else {
-                                    if (isEn) "00:00:00" else "০০:০০:০০"
-                                },
-                                fontSize = 26.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = accentInk
-                            )
-                            if (next != null) {
+                        // Live Countdown bar (spacious full-width strip so text never squeezes at Large font)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (isDarkSurface) Color(0xFF22312C) else Color(0xFFF3F7F5),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                ) {
+                                    Text(
+                                        text = if (next != null) {
+                                            "${tr(isEn, "পরবর্তী", "Next")}: ${next.waqt.title(isEn)}"
+                                        } else {
+                                            tr(isEn, "পরবর্তী ওয়াক্ত", "Next Prayer")
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = titleInk
+                                    )
+                                    if (next != null) {
+                                        Text(
+                                            text = BanglaUtils.formatTime12h(next.targetMinuteOfDay, isEn),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            color = subInk
+                                        )
+                                    }
+                                }
                                 Text(
-                                    text = BanglaUtils.formatTime12h(next.targetMinuteOfDay, isEn),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium,
-                                    color = subInk
+                                    text = if (next != null) {
+                                        BanglaUtils.formatCountdown(next.remainingSeconds, isEn)
+                                    } else {
+                                        if (isEn) "00:00:00" else "০০:০০:০০"
+                                    },
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentInk
                                 )
                             }
                         }
@@ -568,7 +583,10 @@ fun HomeDashboardScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.NightsStay,
@@ -758,15 +776,14 @@ fun HomeDashboardScreen(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.MenuBook,
@@ -777,7 +794,8 @@ fun HomeDashboardScreen(
                             Text(
                                 text = tr(isEn, "দৈনিক কুরআন তিলাওয়াত লক্ষ্য", "Daily Quran Goal"),
                                 style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                         Surface(
@@ -790,10 +808,10 @@ fun HomeDashboardScreen(
                                     "আজ: ${BanglaUtils.toBanglaNumber(readCount)} / ${BanglaUtils.toBanglaNumber(goal)} আয়াত",
                                     "Today: $readCount / $goal Ayahs"
                                 ),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = if (completed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                     }
@@ -903,21 +921,19 @@ fun HomeDashboardScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Row(
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
                                     text = dailyInspiration.ayah.source(isEn),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = tr(isEn, "পূর্ণ বিবরণ ও বিগত ৭ দিন", "Full View & Last 7 Days"),
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
@@ -1234,28 +1250,34 @@ fun HomeDashboardScreen(
                         }
                         HorizontalDivider(color = makruhBorder.copy(alpha = 0.55f))
                         schedule.forbiddenTimes.forEach { window ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                color = if (isDarkSurface) Color(0xFF3A2C1F) else Color(0xFFFFF1C6),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = window.label(isEn),
-                                    fontSize = 16.sp,
-                                    lineHeight = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = makruhBody,
+                                Column(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 10.dp)
-                                )
-                                Text(
-                                    text = "${BanglaUtils.formatTime12h(window.startMinute, isEn)} — ${BanglaUtils.formatTime12h(window.endMinute, isEn)}",
-                                    fontSize = 16.sp,
-                                    lineHeight = 22.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = makruhHeading
-                                )
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = window.label(isEn),
+                                        fontSize = 16.sp,
+                                        lineHeight = 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = makruhBody,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Text(
+                                        text = "${BanglaUtils.formatTime12h(window.startMinute, isEn)} — ${BanglaUtils.formatTime12h(window.endMinute, isEn)}",
+                                        fontSize = 17.sp,
+                                        lineHeight = 23.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = makruhHeading,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                         }
                     }

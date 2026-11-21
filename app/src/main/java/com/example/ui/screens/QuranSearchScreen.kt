@@ -208,7 +208,10 @@ fun QuranSearchScreen(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             ) {
                                 Icon(Icons.Default.DarkMode, contentDescription = null, tint = readerText)
                                 Text(
@@ -427,7 +430,10 @@ fun QuranSearchScreen(
                         text = tr(isEn, "আল-কুরআন ও অনুসন্ধান", "Al-Quran & Search"),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        color = readerText
+                        color = readerText,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
                     )
                     IconButton(onClick = { onQuranDarkModeChanged(!quranDark) }) {
                         Icon(
@@ -454,10 +460,9 @@ fun QuranSearchScreen(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = tr(
@@ -472,9 +477,7 @@ fun QuranSearchScreen(
                             Text(
                                 text = audioState.reciter.displayName(isEn),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = readerSubText,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = readerSubText
                             )
                         }
                         LinearProgressIndicator(

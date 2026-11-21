@@ -445,7 +445,10 @@ private fun RamadanDayRowCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -497,34 +500,45 @@ private fun RamadanDayRowCard(
 
             HorizontalDivider()
 
-            Row(
+            // Spacious 2x2 grid so Bangla Sehri/Fajr/Maghrib/Iftar labels & times never squeeze
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                RamadanTimeColumn(
-                    label = tr(isEnglish, "সাহরি শেষ", "Sehri End"),
-                    value = BanglaUtils.formatTime12h(entry.sehriEndMinute, isEnglish),
-                    highlight = true,
-                    modifier = Modifier.weight(1f)
-                )
-                RamadanTimeColumn(
-                    label = tr(isEnglish, "ফজর", "Fajr"),
-                    value = BanglaUtils.formatTime12h(entry.fajrMinute, isEnglish),
-                    highlight = false,
-                    modifier = Modifier.weight(1f)
-                )
-                RamadanTimeColumn(
-                    label = tr(isEnglish, "মাগরিব", "Maghrib"),
-                    value = BanglaUtils.formatTime12h(entry.maghribMinute, isEnglish),
-                    highlight = false,
-                    modifier = Modifier.weight(1f)
-                )
-                RamadanTimeColumn(
-                    label = tr(isEnglish, "ইফতার", "Iftar"),
-                    value = BanglaUtils.formatTime12h(entry.iftarMinute, isEnglish),
-                    highlight = true,
-                    modifier = Modifier.weight(1f)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RamadanTimeColumn(
+                        label = tr(isEnglish, "সাহরি শেষ", "Sehri End"),
+                        value = BanglaUtils.formatTime12h(entry.sehriEndMinute, isEnglish),
+                        highlight = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    RamadanTimeColumn(
+                        label = tr(isEnglish, "ফজর", "Fajr"),
+                        value = BanglaUtils.formatTime12h(entry.fajrMinute, isEnglish),
+                        highlight = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RamadanTimeColumn(
+                        label = tr(isEnglish, "মাগরিব", "Maghrib"),
+                        value = BanglaUtils.formatTime12h(entry.maghribMinute, isEnglish),
+                        highlight = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                    RamadanTimeColumn(
+                        label = tr(isEnglish, "ইফতার", "Iftar"),
+                        value = BanglaUtils.formatTime12h(entry.iftarMinute, isEnglish),
+                        highlight = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }

@@ -213,13 +213,14 @@ fun ZakatCalculatorScreen(
                             )
                         }
 
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = tr(isEn, "মোট যাকাতযোগ্য সম্পদ:", "Total Zakatable Wealth:"),
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = ZakatCalculator.formatBdt(result.netZakatableWealthBdt, isEn),
@@ -228,17 +229,18 @@ fun ZakatCalculatorScreen(
                             )
                         }
 
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
                                 text = tr(isEn, "নিসাব সীমা:", "Nisab Threshold:"),
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = ZakatCalculator.formatBdt(result.activeNisabBdt, isEn),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.secondary
                             )
@@ -439,25 +441,23 @@ fun ZakatCalculatorScreen(
                             tag = "zakat_bank_input"
                         )
 
-                        // Gold input + Gram/Tola selector
+                        // Gold input + Gram/Tola selector (stacked so labels never squeeze)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = tr(isEn, "স্বর্ণের পরিমাণ:", "Gold Weight:"),
+                                style = MaterialTheme.typography.labelLarge
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = tr(isEn, "স্বর্ণের পরিমাণ:", "Gold Weight:"),
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    WeightUnit.entries.forEach { unit ->
-                                        FilterChip(
-                                            selected = goldUnit == unit,
-                                            onClick = { goldUnit = unit },
-                                            label = { Text(unit.label(isEn), style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
+                                WeightUnit.entries.forEach { unit ->
+                                    FilterChip(
+                                        selected = goldUnit == unit,
+                                        onClick = { goldUnit = unit },
+                                        label = { Text(unit.label(isEn), style = MaterialTheme.typography.labelSmall) },
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
                             }
                             NumericBdtField(
@@ -471,25 +471,23 @@ fun ZakatCalculatorScreen(
                             )
                         }
 
-                        // Silver input + Gram/Tola selector
+                        // Silver input + Gram/Tola selector (stacked so labels never squeeze)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = tr(isEn, "রূপার পরিমাণ:", "Silver Weight:"),
+                                style = MaterialTheme.typography.labelLarge
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = tr(isEn, "রূপার পরিমাণ:", "Silver Weight:"),
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    WeightUnit.entries.forEach { unit ->
-                                        FilterChip(
-                                            selected = silverUnit == unit,
-                                            onClick = { silverUnit = unit },
-                                            label = { Text(unit.label(isEn), style = MaterialTheme.typography.labelSmall) }
-                                        )
-                                    }
+                                WeightUnit.entries.forEach { unit ->
+                                    FilterChip(
+                                        selected = silverUnit == unit,
+                                        onClick = { silverUnit = unit },
+                                        label = { Text(unit.label(isEn), style = MaterialTheme.typography.labelSmall) },
+                                        modifier = Modifier.weight(1f)
+                                    )
                                 }
                             }
                             NumericBdtField(

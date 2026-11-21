@@ -79,12 +79,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.data.local.BundledPlacesCatalog
 import com.example.data.repository.MosqueRepository
 import com.example.data.repository.MosqueSearchResult
 import com.example.data.repository.NearbyMosque
+import com.example.data.repository.SourceAttemptDiagnostic
+import com.example.ui.components.FallbackSavedListBanner
 import com.example.ui.components.MapPlacePin
 import com.example.ui.components.NearbyPlacesMapView
 import com.example.ui.components.formatRadiusExpansionBanner
+import com.example.ui.components.openExternalGoogleMapsNearMe
 import com.example.util.BanglaUtils
 import com.example.util.LocalAppLanguage
 import com.example.util.LocationHelper
@@ -101,16 +105,21 @@ private sealed class MosqueScreenState {
     data object NeedsPermission : MosqueScreenState()
     data object LocationOff : MosqueScreenState()
     data object Loading : MosqueScreenState()
-    data object Offline : MosqueScreenState()
     data class Loaded(
         val mosques: List<NearbyMosque>,
         val requestedRadiusMeters: Int,
         val effectiveRadiusMeters: Int,
-        val answeredMirror: String = ""
+        val answeredMirror: String = "",
+        val isBundledFallback: Boolean = false,
+        val isOfflineFallback: Boolean = false,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
     ) : MosqueScreenState() {
-        val wasExpanded: Boolean get() = effectiveRadiusMeters > requestedRadiusMeters
+        val wasExpanded: Boolean get() = !isBundledFallback && effectiveRadiusMeters > requestedRadiusMeters
     }
-    data class Error(val message: String) : MosqueScreenState()
+    data class Error(
+        val message: String,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+    ) : MosqueScreenState()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -155,37 +164,88 @@ fun MosqueFinderScreen(
         }
     }
 
+    fun showOfflineBundledFallback() {
+        val refLat = userCoords?.first ?: fallbackLat ?: 23.6238
+        val refLon = userCoords?.second ?: fallbackLon ?: 90.5000
+        viewMode = MosqueViewMode.LIST
+        screenState = MosqueScreenState.Loaded(
+            mosques = BundledPlacesCatalog.mosquesSortedByDistance(refLat, refLon),
+            requestedRadiusMeters = radiusMeters,
+            effectiveRadiusMeters = radiusMeters,
+            answeredMirror = "",
+            isBundledFallback = true,
+            isOfflineFallback = true,
+            diagnostics = listOf(
+                SourceAttemptDiagnostic(
+                    sourceName = "network",
+                    httpStatus = null,
+                    elapsedMs = 20L,
+                    errorKind = "no internet"
+                )
+            )
+        )
+    }
+
+    fun applyMosqueSearchResult(res: MosqueSearchResult) {
+        when (res) {
+            is MosqueSearchResult.Offline -> showOfflineBundledFallback()
+            is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
+                mosques = res.mosques,
+                requestedRadiusMeters = res.requestedRadiusMeters,
+                effectiveRadiusMeters = res.effectiveRadiusMeters,
+                answeredMirror = res.answeredMirror
+            )
+            is MosqueSearchResult.FallbackBundled -> {
+                viewMode = MosqueViewMode.LIST
+                screenState = MosqueScreenState.Loaded(
+                    mosques = res.mosques,
+                    requestedRadiusMeters = radiusMeters,
+                    effectiveRadiusMeters = radiusMeters,
+                    answeredMirror = "",
+                    isBundledFallback = true,
+                    isOfflineFallback = false,
+                    diagnostics = res.diagnostics
+                )
+            }
+            is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
+                message = if (isEn) res.messageEn else res.messageBn,
+                diagnostics = res.diagnostics
+            )
+        }
+    }
+
     fun loadMosquesFor(lat: Double, lon: Double, radius: Int, forceRefresh: Boolean = false) {
         activeSearchJob?.cancel()
         activeSearchJob = scope.launch {
             if (!repository.isOnline()) {
-                screenState = MosqueScreenState.Offline
+                showOfflineBundledFallback()
                 return@launch
             }
             screenState = MosqueScreenState.Loading
             selectedMapPinId = null
             try {
-                when (val res = repository.findNearbyMosques(lat, lon, radius, forceRefresh = forceRefresh)) {
-                    is MosqueSearchResult.Offline -> screenState = MosqueScreenState.Offline
-                    is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
-                        mosques = res.mosques,
-                        requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters,
-                        answeredMirror = res.answeredMirror
-                    )
-                    is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
-                        if (isEn) res.messageEn else res.messageBn
-                    )
-                }
+                val res = repository.findNearbyMosques(lat, lon, radius, forceRefresh = forceRefresh)
+                applyMosqueSearchResult(res)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (_: Exception) {
-                screenState = MosqueScreenState.Error(
-                    tr(
-                        isEn,
-                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                        "All 3 servers are busy, please try again in 1 minute"
+            } catch (e: Exception) {
+                val diag = listOf(
+                    SourceAttemptDiagnostic(
+                        sourceName = "search",
+                        httpStatus = null,
+                        elapsedMs = 0L,
+                        errorKind = e.javaClass.simpleName,
+                        detail = e.message.orEmpty()
                     )
+                )
+                viewMode = MosqueViewMode.LIST
+                screenState = MosqueScreenState.Loaded(
+                    mosques = BundledPlacesCatalog.mosquesSortedByDistance(lat, lon),
+                    requestedRadiusMeters = radius,
+                    effectiveRadiusMeters = radius,
+                    isBundledFallback = true,
+                    isOfflineFallback = !repository.isOnline(),
+                    diagnostics = diag
                 )
             }
         }
@@ -195,7 +255,7 @@ fun MosqueFinderScreen(
         // Check offline immediately (< 50 ms) before even touching GPS
         if (!repository.isOnline()) {
             activeSearchJob?.cancel()
-            screenState = MosqueScreenState.Offline
+            showOfflineBundledFallback()
             return
         }
         if (!hasLocationPermission()) {
@@ -249,33 +309,31 @@ fun MosqueFinderScreen(
             }
 
             try {
-                when (
-                    val res = repository.findNearbyMosques(
-                        userLat = resolved.latitude,
-                        userLon = resolved.longitude,
-                        radiusMeters = radiusMeters,
-                        forceRefresh = forceRefresh
-                    )
-                ) {
-                    is MosqueSearchResult.Offline -> screenState = MosqueScreenState.Offline
-                    is MosqueSearchResult.Success -> screenState = MosqueScreenState.Loaded(
-                        mosques = res.mosques,
-                        requestedRadiusMeters = res.requestedRadiusMeters,
-                        effectiveRadiusMeters = res.effectiveRadiusMeters,
-                        answeredMirror = res.answeredMirror
-                    )
-                    is MosqueSearchResult.Error -> screenState = MosqueScreenState.Error(
-                        if (isEn) res.messageEn else res.messageBn
-                    )
-                }
+                val res = repository.findNearbyMosques(
+                    userLat = resolved.latitude,
+                    userLon = resolved.longitude,
+                    radiusMeters = radiusMeters,
+                    forceRefresh = forceRefresh
+                )
+                applyMosqueSearchResult(res)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (_: Exception) {
-                screenState = MosqueScreenState.Error(
-                    tr(
-                        isEn,
-                        "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                        "All 3 servers are busy, please try again in 1 minute"
+            } catch (e: Exception) {
+                viewMode = MosqueViewMode.LIST
+                screenState = MosqueScreenState.Loaded(
+                    mosques = BundledPlacesCatalog.mosquesSortedByDistance(resolved.latitude, resolved.longitude),
+                    requestedRadiusMeters = radiusMeters,
+                    effectiveRadiusMeters = radiusMeters,
+                    isBundledFallback = true,
+                    isOfflineFallback = !repository.isOnline(),
+                    diagnostics = listOf(
+                        SourceAttemptDiagnostic(
+                            sourceName = "search",
+                            httpStatus = null,
+                            elapsedMs = 0L,
+                            errorKind = e.javaClass.simpleName,
+                            detail = e.message.orEmpty()
+                        )
                     )
                 )
             }
@@ -516,21 +574,6 @@ fun MosqueFinderScreen(
                 )
             }
 
-            is MosqueScreenState.Offline -> {
-                MosqueStatusCard(
-                    icon = Icons.Default.WifiOff,
-                    title = tr(isEn, "ইন্টারনেট নেই", "No Internet Connection"),
-                    body = tr(
-                        isEn,
-                        "নিকটবর্তী মসজিদের তালিকা ও ম্যাপ দেখতে ইন্টারনেট চালু করে আবার চেষ্টা করুন।",
-                        "Turn on internet connection to load nearby mosques and the map, then retry."
-                    ),
-                    primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
-                    onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
-                    buttonTag = "mosque_offline_retry"
-                )
-            }
-
             is MosqueScreenState.Loading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -538,27 +581,44 @@ fun MosqueFinderScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(horizontal = 24.dp)
                     ) {
                         CircularProgressIndicator()
                         Text(
                             text = tr(isEn, "কাছাকাছি মসজিদ খোঁজা হচ্ছে...", "Searching for nearby mosques..."),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = tr(
+                                isEn,
+                                "সর্বোচ্চ ১৫ সেকেন্ডের মধ্যে ফলাফল দেখানো হবে",
+                                "Results or saved list will load within 15 seconds"
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
             }
 
             is MosqueScreenState.Error -> {
+                val diagSummary = if (state.diagnostics.isNotEmpty()) {
+                    state.diagnostics.joinToString("\n") { it.formatLine(isEn) }
+                } else {
+                    tr(
+                        isEn,
+                        "অবস্থান যাচাই করে আবার চেষ্টা করুন অথবা সরাসরি Google Maps-এ খুঁজুন।",
+                        "Please verify location and retry, or open directly in Google Maps."
+                    )
+                }
                 MosqueStatusCard(
                     icon = Icons.Default.Mosque,
                     title = state.message,
-                    body = tr(
-                        isEn,
-                        "ওপেনস্ট্রিটম্যাপ সার্ভার থেকে তথ্য আনতে সময় লাগছে। কিছুক্ষণ পর আবার চেষ্টা করুন।",
-                        "Could not get a timely response from the map server. Please try again."
-                    ),
+                    body = diagSummary,
                     primaryButtonLabel = tr(isEn, "আবার চেষ্টা করুন", "Try Again"),
                     onPrimaryClick = { detectGpsAndLoad(forceRefresh = true) },
                     buttonTag = "mosque_error_retry"
@@ -568,6 +628,27 @@ fun MosqueFinderScreen(
             is MosqueScreenState.Loaded -> {
                 val filtered = remember(state.mosques, searchQuery) {
                     MosqueRepository.filterMosques(state.mosques, searchQuery)
+                }
+
+                // Fallback banner with real server diagnostics + Retry + Open in Google Maps
+                if (state.isBundledFallback) {
+                    FallbackSavedListBanner(
+                        isOffline = state.isOfflineFallback,
+                        diagnostics = state.diagnostics,
+                        isEnglish = isEn,
+                        onRetry = { detectGpsAndLoad(forceRefresh = true) },
+                        onOpenGoogleMaps = {
+                            openExternalGoogleMapsNearMe(
+                                context = context,
+                                latitude = userCoords?.first ?: fallbackLat,
+                                longitude = userCoords?.second ?: fallbackLon,
+                                queryTerm = "mosque near me",
+                                isEnglish = isEn,
+                                onStatusMessage = onStatusMessage
+                            )
+                        },
+                        testTagPrefix = "mosque"
+                    )
                 }
 
                 // Auto-expanded radius notice banner
@@ -600,7 +681,8 @@ fun MosqueFinderScreen(
                                 ),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }

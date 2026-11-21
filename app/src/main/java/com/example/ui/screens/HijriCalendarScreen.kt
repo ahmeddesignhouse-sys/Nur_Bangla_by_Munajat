@@ -418,29 +418,33 @@ fun HijriCalendarScreen(
                             }
                         }
 
-                        // Subtle swipe hint + quick moon-sighting +/-1 selector
-                        Row(
+                        // Subtle swipe hint + quick moon-sighting +/-1 selector (stacked to prevent narrow-column squeeze)
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
                                 text = tr(isEn, "মাস বদলাতে সোয়াইপ করুন", "Swipe left/right to change month"),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 listOf(-1, 0, 1).forEach { offset ->
                                     val label = when (offset) {
                                         -1 -> tr(isEn, "-১ দিন", "-1d")
                                         1 -> tr(isEn, "+১ দিন", "+1d")
-                                        else -> tr(isEn, "০", "0")
+                                        else -> tr(isEn, "০ (অটো)", "0 (Auto)")
                                     }
                                     FilterChip(
                                         selected = dayOffset == offset,
                                         onClick = { onHijriOffsetChanged(offset) },
                                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                        modifier = Modifier.testTag("hijri_offset_chip_$offset")
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("hijri_offset_chip_$offset")
                                     )
                                 }
                             }
@@ -521,30 +525,36 @@ fun HijriCalendarScreen(
                 }
             }
 
-            // Islamic Events Section Header + Filter Chips
+            // Islamic Events Section Header + Filter Chips (stacked to prevent heading squeeze)
             item {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = tr(isEn, "ইসলামিক দিবসসমূহ", "Islamic Events"),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         FilterChip(
                             selected = !showAllYearEvents,
                             onClick = { showAllYearEvents = false },
                             label = { Text(tr(isEn, "এই মাস", "This Month")) },
-                            modifier = Modifier.testTag("events_filter_month")
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("events_filter_month")
                         )
                         FilterChip(
                             selected = showAllYearEvents,
                             onClick = { showAllYearEvents = true },
                             label = { Text(tr(isEn, "সারা বছর", "All Year")) },
-                            modifier = Modifier.testTag("events_filter_year")
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("events_filter_year")
                         )
                     }
                 }

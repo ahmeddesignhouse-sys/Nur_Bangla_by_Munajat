@@ -4,11 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,12 +21,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -46,14 +55,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.util.DailyInspirationEntry
 import com.example.util.DailyShareCardGenerator
+import com.example.util.DirectShareTarget
+import com.example.util.ShareCardFontSize
 import com.example.util.ShareCardFormat
 import com.example.util.ShareCardTheme
 import com.example.util.tr
@@ -62,9 +75,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Interactive share sheet for Daily Hadith & Ayah:
- * renders a live preview of the full-content PNG card (Story 9:16 or Post 1:1, Dark or Light)
- * and provides one-tap Share as Image (WhatsApp/Facebook/Telegram), Share as Text, and Copy.
+ * Interactive Share Card Customizer & Direct Share Sheet (v1.8):
+ * - Live PNG card preview updating immediately for 4 Themes, 3 Font Sizes, and Story 9:16 vs Post 1:1
+ * - Primary "Share as Image (PNG)" CTA
+ * - Installed-only direct app targets (Facebook Story/Post, WhatsApp Status/Chat, Telegram,
+ *   Instagram Story/Post, Messenger, X) — safely hidden if uninstalled
+ * - Zero-permission "Save PNG to Gallery", "Share as Text", and "Copy"
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,17 +96,23 @@ fun DailyShareSheet(
 
     var selectedFormat by remember { mutableStateOf(ShareCardFormat.STORY) }
     var selectedTheme by remember { mutableStateOf(ShareCardTheme.DARK_MOSQUE) }
+    var selectedFontSize by remember { mutableStateOf(ShareCardFontSize.MEDIUM) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isSharing by remember { mutableStateOf(false) }
+    var isWorking by remember { mutableStateOf(false) }
 
-    LaunchedEffect(entry.dateKey, isEnglish, selectedFormat, selectedTheme) {
+    val installedTargets = remember(context) {
+        DailyShareCardGenerator.getInstalledShareTargets(context)
+    }
+
+    LaunchedEffect(entry.dateKey, isEnglish, selectedFormat, selectedTheme, selectedFontSize) {
         previewBitmap = withContext(Dispatchers.Default) {
             DailyShareCardGenerator.renderDailyCard(
                 context = context,
                 entry = entry,
                 isEnglish = isEnglish,
                 format = selectedFormat,
-                theme = selectedTheme
+                theme = selectedTheme,
+                fontSize = selectedFontSize
             ).bitmap
         }
     }
@@ -108,61 +130,27 @@ fun DailyShareSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = tr(isEnglish, "হাদিস ও আয়াত শেয়ার করুন", "Share Daily Hadith & Ayah"),
+                text = tr(isEnglish, "হাদিস ও আয়াত কার্ড শেয়ার করুন", "Customize & Share Daily Card"),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = tr(
                     isEnglish,
-                    "ফেসবুক স্টোরি/পোস্ট বা হোয়াটসঅ্যাপ স্ট্যাটাসে সম্পূর্ণ লেখা সহ সুন্দর কার্ড ছবি শেয়ার করুন",
-                    "Share a clean full-text card image to Facebook Story/Post, WhatsApp Status, or Telegram"
+                    "থিম, ফন্ট সাইজ ও ফরম্যাট বেছে নিন — প্রিভিউ দেখে সরাসরি ছবি শেয়ার বা গ্যালারিতে সেভ করুন",
+                    "Pick theme, font size, and format — live preview updates instantly before sharing or saving"
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Format selector (Story 9:16 vs Feed 1:1)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ShareCardFormat.entries.forEach { fmt ->
-                    FilterChip(
-                        selected = selectedFormat == fmt,
-                        onClick = { selectedFormat = fmt },
-                        label = { Text(fmt.label(isEnglish), style = MaterialTheme.typography.labelMedium) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("share_format_${fmt.name.lowercase()}")
-                    )
-                }
-            }
-
-            // Card theme selector (Dark Emerald vs Light Ivory)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ShareCardTheme.entries.forEach { cardTheme ->
-                    FilterChip(
-                        selected = selectedTheme == cardTheme,
-                        onClick = { selectedTheme = cardTheme },
-                        label = { Text(cardTheme.label(isEnglish), style = MaterialTheme.typography.labelMedium) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("share_theme_${cardTheme.name.lowercase()}")
-                    )
-                }
-            }
-
-            // Live Card Preview
+            // Live Rendered PNG Card Preview
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 240.dp, max = 380.dp)
+                    .heightIn(min = 240.dp, max = 390.dp)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
                     .padding(10.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -174,7 +162,7 @@ fun DailyShareSheet(
                         contentDescription = tr(isEnglish, "শেয়ার কার্ড প্রিভিউ", "Share card preview"),
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .heightIn(max = 356.dp)
+                            .heightIn(max = 368.dp)
                             .aspectRatio(ratio)
                             .clip(RoundedCornerShape(14.dp))
                     )
@@ -183,11 +171,137 @@ fun DailyShareSheet(
                 }
             }
 
-            // Primary CTA: Share as Image (PNG via FileProvider)
+            // 1. Format selector (Story 9:16 vs Post 1:1)
+            Text(
+                text = tr(isEnglish, "কার্ড ফরম্যাট", "Card Format"),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ShareCardFormat.entries.forEach { fmt ->
+                    FilterChip(
+                        selected = selectedFormat == fmt,
+                        onClick = { selectedFormat = fmt },
+                        label = {
+                            Text(
+                                text = fmt.label(isEnglish),
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("share_format_${fmt.name.lowercase()}")
+                    )
+                }
+            }
+
+            // 2. 4 Themes (2x2 grid so every theme name stays crisp and full-width)
+            Text(
+                text = tr(isEnglish, "থিম নির্বাচন করুন", "Choose Theme"),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            val themeRows = ShareCardTheme.entries.chunked(2)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                themeRows.forEach { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pair.forEach { cardTheme ->
+                            val isSelected = selectedTheme == cardTheme
+                            Surface(
+                                onClick = { selectedTheme = cardTheme },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                },
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("share_theme_${cardTheme.name.lowercase()}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(cardTheme.previewBgArgb))
+                                            .border(2.dp, Color(cardTheme.previewAccentArgb), CircleShape)
+                                    )
+                                    Text(
+                                        text = cardTheme.label(isEnglish),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Font Size selector (Small / Medium / Large)
+            Text(
+                text = tr(isEnglish, "লেখার আকার", "Text Size"),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ShareCardFontSize.entries.forEach { sizeOption ->
+                    FilterChip(
+                        selected = selectedFontSize == sizeOption,
+                        onClick = { selectedFontSize = sizeOption },
+                        label = {
+                            Text(
+                                text = sizeOption.label(isEnglish),
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("share_font_${sizeOption.name.lowercase()}")
+                    )
+                }
+            }
+
+            // 4. Primary CTA: Share as Image (PNG via FileProvider)
             Button(
                 onClick = {
-                    if (isSharing) return@Button
-                    isSharing = true
+                    if (isWorking) return@Button
+                    isWorking = true
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
                             DailyShareCardGenerator.shareCardImage(
@@ -195,10 +309,11 @@ fun DailyShareSheet(
                                 entry = entry,
                                 isEnglish = isEnglish,
                                 format = selectedFormat,
-                                theme = selectedTheme
+                                theme = selectedTheme,
+                                fontSize = selectedFontSize
                             )
                         }
-                        isSharing = false
+                        isWorking = false
                         if (result.isFailure) {
                             onStatusMessage(
                                 tr(
@@ -212,14 +327,14 @@ fun DailyShareSheet(
                         }
                     }
                 },
-                enabled = !isSharing,
+                enabled = !isWorking,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
                     .testTag("share_as_image_button"),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                if (isSharing) {
+                if (isWorking) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         color = MaterialTheme.colorScheme.onPrimary,
@@ -230,12 +345,123 @@ fun DailyShareSheet(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = tr(isEnglish, "ছবি হিসেবে শেয়ার করুন (PNG কার্ড)", "Share as Image (PNG Card)"),
+                    text = tr(isEnglish, "ছবি হিসেবে শেয়ার করুন (PNG)", "Share as Image (PNG)"),
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            // Secondary CTA: Share as Plain Text + Copy Text
+            // 5. Direct App Share Targets (ONLY shown for installed apps on this device)
+            if (installedTargets.isNotEmpty()) {
+                Text(
+                    text = tr(isEnglish, "সরাসরি অ্যাপে শেয়ার করুন", "Share Directly to App"),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("direct_share_targets_row"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 2.dp)
+                ) {
+                    items(installedTargets, key = { it.name }) { target ->
+                        DirectShareTargetChip(
+                            target = target,
+                            isEnglish = isEnglish,
+                            enabled = !isWorking,
+                            onClick = {
+                                if (isWorking) return@DirectShareTargetChip
+                                isWorking = true
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        DailyShareCardGenerator.shareCardToDirectTarget(
+                                            context = context,
+                                            target = target,
+                                            entry = entry,
+                                            isEnglish = isEnglish,
+                                            format = selectedFormat,
+                                            theme = selectedTheme,
+                                            fontSize = selectedFontSize
+                                        )
+                                    }
+                                    isWorking = false
+                                    if (result.isFailure) {
+                                        onStatusMessage(
+                                            tr(
+                                                isEnglish,
+                                                "${target.label(false)}-এ শেয়ার করা যায়নি",
+                                                "Could not open ${target.label(true)}"
+                                            )
+                                        )
+                                    } else {
+                                        onDismiss()
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 6. Save PNG to Gallery (zero storage permissions on Android 10+)
+            OutlinedButton(
+                onClick = {
+                    if (isWorking) return@OutlinedButton
+                    isWorking = true
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            val bmp = previewBitmap ?: DailyShareCardGenerator.renderDailyCard(
+                                context = context,
+                                entry = entry,
+                                isEnglish = isEnglish,
+                                format = selectedFormat,
+                                theme = selectedTheme,
+                                fontSize = selectedFontSize
+                            ).bitmap
+                            DailyShareCardGenerator.saveCardPngToGallery(
+                                context = context,
+                                bitmap = bmp,
+                                dateKey = entry.dateKey,
+                                format = selectedFormat
+                            )
+                        }
+                        isWorking = false
+                        if (result.isSuccess) {
+                            onStatusMessage(
+                                tr(
+                                    isEnglish,
+                                    "কার্ডটি গ্যালারিতে (Pictures/NurBangla) সেভ হয়েছে",
+                                    "Card saved to Gallery (Pictures/NurBangla)"
+                                )
+                            )
+                        } else {
+                            onStatusMessage(
+                                tr(
+                                    isEnglish,
+                                    "গ্যালারিতে সেভ করা যায়নি। আবার চেষ্টা করুন।",
+                                    "Could not save PNG to Gallery. Please try again."
+                                )
+                            )
+                        }
+                    }
+                },
+                enabled = !isWorking,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("save_png_gallery_button"),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = tr(isEnglish, "গ্যালারিতে সেভ করুন (PNG)", "Save PNG to Gallery"),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            // 7. Secondary CTA: Share as Plain Text + Copy Text
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -276,6 +502,48 @@ fun DailyShareSheet(
                     Text(tr(isEnglish, "কপি", "Copy"))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DirectShareTargetChip(
+    target: DirectShareTarget,
+    isEnglish: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        color = Color(target.badgeColorArgb).copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, Color(target.badgeColorArgb).copy(alpha = 0.45f)),
+        modifier = Modifier.testTag("direct_share_${target.name.lowercase()}")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(Color(target.badgeColorArgb))
+            )
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = null,
+                tint = Color(target.badgeColorArgb),
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = target.label(isEnglish),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }

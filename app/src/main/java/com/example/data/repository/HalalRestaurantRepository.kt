@@ -4,20 +4,14 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import com.example.data.local.BundledPlacesCatalog
 import com.example.util.LocationHelper
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -46,6 +40,7 @@ data class NearbyHalalRestaurant(
 
 sealed class HalalSearchResult {
     data object Offline : HalalSearchResult()
+
     data class Success(
         val restaurants: List<NearbyHalalRestaurant>,
         val requestedRadiusMeters: Int = 5000,
@@ -56,17 +51,28 @@ sealed class HalalSearchResult {
         val wasExpanded: Boolean
             get() = effectiveRadiusMeters > requestedRadiusMeters
     }
-    data class Error(val messageBn: String, val messageEn: String) : HalalSearchResult()
+
+    /**
+     * Returned when every online Overpass mirror + Nominatim failed within the 15s hard cap.
+     * Always provides the curated local Dhaka/Narayanganj Halal restaurants list (Halal-first,
+     * sorted by distance) PLUS the exact diagnostic log.
+     */
+    data class FallbackBundled(
+        val restaurants: List<NearbyHalalRestaurant>,
+        val diagnostics: List<SourceAttemptDiagnostic>,
+        val timedOutOverall: Boolean = false
+    ) : HalalSearchResult()
+
+    data class Error(
+        val messageBn: String,
+        val messageEn: String,
+        val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+    ) : HalalSearchResult()
 }
 
 /**
- * 100% FREE nearby Halal restaurant discovery using OpenStreetMap Overpass API:
- * - Tries 3 Overpass mirrors in order (1 primary + 2 retries total) via HTTP POST body (`data=...`).
- * - 30-second read timeout per server, 25-second Overpass query timeout.
- * - Single simple query for all restaurant/cafe/fast_food (no strict-tag prefilter that returns 0 in BD),
- *   then sorts items with "Halal" in name/cuisine/diet:halal FIRST, followed by nearest distance.
- * - Auto-expands radius (2 km -> 5 km -> 10 km -> 20 km) if a step truly returns 0 places.
- * - 10-minute in-memory cache, Dispatchers.IO execution, cooperative cancellation on screen exit.
+ * 100% FREE nearby Halal restaurant discovery using OpenStreetMap Overpass API (5 mirrors)
+ * + Nominatim fallback + curated offline Dhaka/Narayanganj fallback. Zero API keys, zero billing, hard 15s cap.
  */
 class HalalRestaurantRepository(private val context: Context) {
 
@@ -109,19 +115,34 @@ class HalalRestaurantRepository(private val context: Context) {
         }
 
         val radiusLadder = buildRadiusLadder(radiusMeters)
-        var anyMirrorAnswered = false
+        val startedAllMs = System.currentTimeMillis()
+        var anyOnlineAnswered = false
         var lastAnsweredMirror = ""
-        var lastException: Exception? = null
+        var lastDiagnostics: List<SourceAttemptDiagnostic> = emptyList()
+        var timedOutOverall = false
 
         for (stepRadius in radiusLadder) {
             currentCoroutineContext().ensureActive()
-            val maxKm = stepRadius / 1000.0
+            val remainingMs = FreePlacesNetworkEngine.TOTAL_SEARCH_DEADLINE_MS - (System.currentTimeMillis() - startedAllMs)
+            if (remainingMs < 1_000L) {
+                timedOutOverall = true
+                break
+            }
 
+            val maxKm = stepRadius / 1000.0
             val query = buildOverpassQuery(userLat, userLon, stepRadius)
-            val outcome = executeOverpassAcrossMirrors(query)
+            val outcome = FreePlacesNetworkEngine.fetchOverpassThenNominatim(
+                overpassQuery = query,
+                nominatimQuery = "restaurant",
+                lat = userLat,
+                lon = userLon,
+                radiusMeters = stepRadius,
+                totalDeadlineMs = remainingMs
+            )
+
             when (outcome) {
-                is OverpassCallOutcome.Success -> {
-                    anyMirrorAnswered = true
+                is FreePlacesFetchOutcome.OverpassSuccess -> {
+                    anyOnlineAnswered = true
                     lastAnsweredMirror = outcome.mirrorHost
                     val results = parseOverpassResponse(outcome.body, userLat, userLon)
                         .filter { it.distanceKm <= maxKm + 0.2 }
@@ -141,15 +162,40 @@ class HalalRestaurantRepository(private val context: Context) {
                     }
                     // Truly 0 restaurants in this radius -> auto-expand to next radius step
                 }
-                is OverpassCallOutcome.AllMirrorsFailed -> {
-                    lastException = outcome.lastException
-                    // All 3 mirrors failed -> stop immediately, do NOT loop radii
+
+                is FreePlacesFetchOutcome.NominatimSuccess -> {
+                    anyOnlineAnswered = true
+                    lastAnsweredMirror = "nominatim.openstreetmap.org"
+                    val results = parseNominatimResponse(
+                        jsonText = outcome.body,
+                        userLat = userLat,
+                        userLon = userLon,
+                        maxDistanceKm = maxKm + 0.5,
+                        isExplicitHalalQuery = false
+                    )
+                    if (results.isNotEmpty()) {
+                        val success = HalalSearchResult.Success(
+                            restaurants = results,
+                            requestedRadiusMeters = radiusMeters,
+                            effectiveRadiusMeters = stepRadius,
+                            answeredMirror = lastAnsweredMirror,
+                            fromCache = false
+                        )
+                        putCachedResult(cacheKey, success)
+                        return@withContext success
+                    }
+                }
+
+                is FreePlacesFetchOutcome.AllFailed -> {
+                    lastDiagnostics = outcome.diagnostics
+                    timedOutOverall = outcome.timedOutOverall
+                    // All online sources failed -> stop looping radii and serve bundled list
                     break
                 }
             }
         }
 
-        if (anyMirrorAnswered) {
+        if (anyOnlineAnswered) {
             return@withContext HalalSearchResult.Success(
                 restaurants = emptyList(),
                 requestedRadiusMeters = radiusMeters,
@@ -158,93 +204,56 @@ class HalalRestaurantRepository(private val context: Context) {
             )
         }
 
-        if (!isOnline() || lastException is UnknownHostException) {
-            HalalSearchResult.Offline
-        } else {
-            HalalSearchResult.Error(
-                messageBn = "তিনটি সার্ভারই ব্যস্ত, ১ মিনিট পর আবার চেষ্টা করুন",
-                messageEn = "All 3 servers are busy, please try again in 1 minute"
-            )
+        if (!isOnline()) {
+            return@withContext HalalSearchResult.Offline
         }
+
+        HalalSearchResult.FallbackBundled(
+            restaurants = BundledPlacesCatalog.halalRestaurantsSorted(userLat, userLon),
+            diagnostics = lastDiagnostics,
+            timedOutOverall = timedOutOverall
+        )
     }
 
     internal sealed class OverpassCallOutcome {
         data class Success(val body: String, val mirrorHost: String, val elapsedMs: Long) : OverpassCallOutcome()
-        data class AllMirrorsFailed(val lastException: Exception?) : OverpassCallOutcome()
+        data class AllMirrorsFailed(
+            val lastException: Exception?,
+            val diagnostics: List<SourceAttemptDiagnostic> = emptyList()
+        ) : OverpassCallOutcome()
     }
 
-    internal suspend fun executeOverpassAcrossMirrors(query: String): OverpassCallOutcome {
-        var lastException: Exception? = null
-
-        // Try all 3 mirrors IN ORDER (1 initial + 2 retries total)
-        for ((index, endpoint) in OVERPASS_MIRRORS.withIndex()) {
-            currentCoroutineContext().ensureActive()
-            val mirrorHost = runCatching { URL(endpoint).host }.getOrDefault(endpoint)
-            val startedMs = System.currentTimeMillis()
-            runCatching {
-                Log.d(TAG, "Overpass halal POST attempt #${index + 1}/3 -> $endpoint")
-            }
-            try {
-                val body = postOverpassQueryCancellable(endpoint, query)
-                MosqueRepository.validateOverpassJsonBody(body)
-                val elapsedMs = System.currentTimeMillis() - startedMs
-                runCatching {
-                    Log.i(TAG, "Overpass halal mirror answered: $mirrorHost in ${elapsedMs}ms (${body.length} chars)")
-                }
-                return OverpassCallOutcome.Success(body = body, mirrorHost = mirrorHost, elapsedMs = elapsedMs)
-            } catch (ce: CancellationException) {
-                throw ce
-            } catch (e: Exception) {
-                lastException = e
-                val elapsedMs = System.currentTimeMillis() - startedMs
-                runCatching {
-                    Log.w(TAG, "Overpass halal mirror $mirrorHost failed in ${elapsedMs}ms: ${e.javaClass.simpleName}: ${e.message}")
-                }
-            }
-        }
-
-        return OverpassCallOutcome.AllMirrorsFailed(lastException)
-    }
-
-    private suspend fun postOverpassQueryCancellable(endpointUrl: String, query: String): String {
-        val conn = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            doOutput = true
-            useCaches = false
-            setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Accept-Encoding", "identity")
-            setRequestProperty("User-Agent", USER_AGENT)
-        }
-
-        val job = currentCoroutineContext()[Job]
-        val cancelHandle = job?.invokeOnCompletion { cause ->
-            if (cause != null) {
-                runCatching { conn.disconnect() }
-            }
-        }
-
-        return try {
-            currentCoroutineContext().ensureActive()
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                writer.write("data=" + URLEncoder.encode(query, "UTF-8"))
-                writer.flush()
-            }
-            currentCoroutineContext().ensureActive()
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                throw HttpStatusException(code)
-            }
-            conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally {
-            cancelHandle?.dispose()
-            runCatching { conn.disconnect() }
+    internal suspend fun executeOverpassAcrossMirrors(
+        query: String,
+        lat: Double = 23.6238,
+        lon: Double = 90.5000,
+        radiusMeters: Int = 5000
+    ): OverpassCallOutcome {
+        return when (
+            val outcome = FreePlacesNetworkEngine.fetchOverpassThenNominatim(
+                overpassQuery = query,
+                nominatimQuery = "restaurant",
+                lat = lat,
+                lon = lon,
+                radiusMeters = radiusMeters
+            )
+        ) {
+            is FreePlacesFetchOutcome.OverpassSuccess -> OverpassCallOutcome.Success(
+                body = outcome.body,
+                mirrorHost = outcome.mirrorHost,
+                elapsedMs = outcome.elapsedMs
+            )
+            is FreePlacesFetchOutcome.NominatimSuccess -> OverpassCallOutcome.Success(
+                body = outcome.body,
+                mirrorHost = "nominatim.openstreetmap.org",
+                elapsedMs = outcome.elapsedMs
+            )
+            is FreePlacesFetchOutcome.AllFailed -> OverpassCallOutcome.AllMirrorsFailed(
+                lastException = outcome.lastException,
+                diagnostics = outcome.diagnostics
+            )
         }
     }
-
-    internal class HttpStatusException(val statusCode: Int) : IllegalStateException("HTTP $statusCode")
 
     private data class CacheEntry(
         val savedAtMs: Long,
@@ -253,13 +262,10 @@ class HalalRestaurantRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "HalalRestaurantRepo"
-        private const val USER_AGENT = "NurBanglaAndroid/1.7 (com.noorbangla.islam; OpenStreetMap Overpass client)"
-        private const val CONNECT_TIMEOUT_MS = 8_000
-        private const val READ_TIMEOUT_MS = 30_000
         const val CACHE_TTL_MS = 10 * 60 * 1000L
 
-        // Three FREE Overpass mirrors tried strictly in order (1 primary + 2 retries)
-        val OVERPASS_MIRRORS = MosqueRepository.OVERPASS_MIRRORS
+        // Five FREE Overpass mirrors tried in priority order
+        val OVERPASS_MIRRORS: List<String> = FreePlacesNetworkEngine.OVERPASS_MIRRORS
 
         private val HALAL_EXPLICIT_REGEX = Regex("halal|হালাল", RegexOption.IGNORE_CASE)
         private val HALAL_FRIENDLY_REGEX = Regex(
@@ -297,10 +303,6 @@ class HalalRestaurantRepository(private val context: Context) {
         fun buildRadiusLadder(requestedRadiusMeters: Int): List<Int> =
             MosqueRepository.buildRadiusLadder(requestedRadiusMeters)
 
-        /**
-         * Simple, proven Overpass QL query returning all nearby restaurants, cafes & fast food.
-         * App-side sorting ranks items with "Halal" in name / cuisine / diet:halal FIRST.
-         */
         fun buildOverpassQuery(lat: Double, lon: Double, radiusMeters: Int): String {
             val latStr = String.format(Locale.US, "%.5f", lat)
             val lonStr = String.format(Locale.US, "%.5f", lon)
@@ -489,9 +491,6 @@ class HalalRestaurantRepository(private val context: Context) {
             return deduplicateAndSort(results)
         }
 
-        /**
-         * Sorts explicit Halal places FIRST, then by nearest distance, and removes duplicates.
-         */
         private fun deduplicateAndSort(places: List<NearbyHalalRestaurant>): List<NearbyHalalRestaurant> {
             val seen = HashSet<String>()
             val unique = ArrayList<NearbyHalalRestaurant>(places.size)

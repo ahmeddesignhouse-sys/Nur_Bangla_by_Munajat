@@ -499,8 +499,8 @@ fun ProfileSettingsScreen(
                             Text(
                                 text = tr(
                                     isEn,
-                                    "• পূর্ণ অফলাইন মক্কা, মদীনা ও আল-আকসা আযান অ্যালার্ম।\n• দৈনিক হাদিস ও আয়াত সুন্দর PNG কার্ড ছবি হিসেবে শেয়ার (স্টোরি/পোস্ট)।\n• হোম স্ক্রিনে পরিষ্কার নামাজ কার্ড ও স্পষ্ট মাকরুহ সময়ের ডিজাইন।\n• মসজিদ ও হালাল ফাইন্ডারে নির্ভরযোগ্য সার্চ ও অ্যাপের ভেতরেই লাইভ ম্যাপ।",
-                                    "• Full offline Makkah, Madinah & Al-Aqsa Adhan alarm recordings.\n• Share Daily Hadith & Ayah as clean full-text PNG cards (Story/Post).\n• Clean separate Home current-prayer card & high-contrast Makruh times.\n• Reliable Mosque & Halal Finder with auto-expanding radius & in-app map."
+                                    "• মসজিদ ও হালাল ফাইন্ডারে ৫টি ফ্রি ওভারপাস মিরর, নমিনাটিম, সংরক্ষিত অফলাইন তালিকা ও আসল ডায়াগনস্টিক।\n• মাকরুহ সময়সহ সকল স্ক্রিনের টেক্সট বড় ফন্টেও একদম পরিষ্কার ও প্রশস্ত।\n• কিবলা কম্পাসে সেন্সর ফিউশন, সত্য উত্তর (True North) ও ক্যালিব্রেশন গাইড।\n• দৈনিক হাদিস ও আয়াত শেয়ার কার্ডে ৪টি থিম, বড় ফন্ট, লাইভ প্রিভিউ ও সরাসরি সোশ্যাল শেয়ার।",
+                                    "• Mosque & Halal Finder: 5 free Overpass mirrors, Nominatim, saved offline list & real diagnostics.\n• Wide, crisp typography across Makruh times & every screen (Normal & Large font).\n• Qibla Compass with sensor fusion, True North declination & calibration guidance.\n• Redesigned Share Card with 4 themes, larger text, live customizer & direct app sharing."
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -584,12 +584,12 @@ fun ProfileSettingsScreen(
                             val label = when (offset) {
                                 -1 -> tr(isEn, "-১ দিন", "-1 Day")
                                 1 -> tr(isEn, "+১ দিন", "+1 Day")
-                                else -> tr(isEn, "০ (স্বয়ংক্রিয়)", "0 (Auto)")
+                                else -> tr(isEn, "০ (অটো)", "0 (Auto)")
                             }
                             FilterChip(
                                 selected = uiState.settings.hijriDayOffset == offset,
                                 onClick = { onHijriDayOffsetChanged(offset) },
-                                label = { Text(label) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("settings_hijri_offset_$offset")
@@ -701,27 +701,34 @@ fun ProfileSettingsScreen(
                         text = tr(isEn, "দৈনিক কুরআন লক্ষ্য (প্রতিদিন আয়াত সংখ্যা):", "Daily Quran Goal (Ayahs per Day):"),
                         style = MaterialTheme.typography.labelLarge
                     )
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf(5, 10, 20, 30).forEach { goalCount ->
-                            FilterChip(
-                                selected = uiState.settings.dailyQuranGoal == goalCount,
-                                onClick = { onDailyQuranGoalChanged(goalCount) },
-                                label = {
-                                    Text(
-                                        tr(
-                                            isEn,
-                                            "${BanglaUtils.toBanglaNumber(goalCount)} আয়াত",
-                                            "$goalCount"
-                                        )
+                        listOf(listOf(5, 10), listOf(20, 30)).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                pair.forEach { goalCount ->
+                                    FilterChip(
+                                        selected = uiState.settings.dailyQuranGoal == goalCount,
+                                        onClick = { onDailyQuranGoalChanged(goalCount) },
+                                        label = {
+                                            Text(
+                                                tr(
+                                                    isEn,
+                                                    "${BanglaUtils.toBanglaNumber(goalCount)} আয়াত",
+                                                    "$goalCount Ayahs"
+                                                )
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("settings_quran_goal_$goalCount")
                                     )
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("settings_quran_goal_$goalCount")
-                            )
+                                }
+                            }
                         }
                     }
                     Text(
@@ -995,7 +1002,10 @@ fun ProfileSettingsScreen(
                                     Text(
                                         text = method.title(isEn),
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
                                     )
                                     if (selected) {
                                         Icon(
@@ -1336,28 +1346,35 @@ fun ProfileSettingsScreen(
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    Row(
+                                    Column(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        listOf(0, 5, 10, 15).forEach { mins ->
-                                            FilterChip(
-                                                selected = setting.reminderMinutesBefore == mins,
-                                                onClick = { onWaqtReminderMinutesChanged(waqt, mins) },
-                                                label = {
-                                                    Text(
-                                                        text = if (mins == 0) {
-                                                            tr(isEn, "বন্ধ", "Off")
-                                                        } else {
-                                                            "${BanglaUtils.formatNumber(mins, isEn)} ${tr(isEn, "মি.", "m")}"
+                                        listOf(listOf(0, 5), listOf(10, 15)).forEach { pair ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                pair.forEach { mins ->
+                                                    FilterChip(
+                                                        selected = setting.reminderMinutesBefore == mins,
+                                                        onClick = { onWaqtReminderMinutesChanged(waqt, mins) },
+                                                        label = {
+                                                            Text(
+                                                                text = if (mins == 0) {
+                                                                    tr(isEn, "বন্ধ", "Off")
+                                                                } else {
+                                                                    "${BanglaUtils.formatNumber(mins, isEn)} ${tr(isEn, "মিনিট", "min")}"
+                                                                },
+                                                                style = MaterialTheme.typography.labelSmall
+                                                            )
                                                         },
-                                                        style = MaterialTheme.typography.labelSmall
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .testTag("prayer_reminder_${waqt.key}_$mins")
                                                     )
-                                                },
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .testTag("prayer_reminder_${waqt.key}_$mins")
-                                            )
+                                                }
+                                            }
                                         }
                                     }
 
@@ -1471,7 +1488,7 @@ private fun LanguageOptionCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,

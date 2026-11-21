@@ -14,10 +14,10 @@ import org.robolectric.annotation.Config
 class UpdateCheckerTest {
 
     @Test
-    fun versionMetadataMatchesV17Code8() {
+    fun versionMetadataMatchesV18Code9() {
         assertEquals("com.noorbangla.islam", BuildConfig.APPLICATION_ID)
-        assertEquals(8, BuildConfig.VERSION_CODE)
-        assertEquals("1.7", BuildConfig.VERSION_NAME)
+        assertEquals(9, BuildConfig.VERSION_CODE)
+        assertEquals("1.8", BuildConfig.VERSION_NAME)
         assertEquals(
             "https://raw.githubusercontent.com/ahmeddesignhouse-sys/nur-bangla-updates/main/version.json",
             UpdateChecker.VERSION_JSON_URL
@@ -79,11 +79,11 @@ class UpdateCheckerTest {
 
     @Test
     fun isUpdateAvailableComparesVersionCodeCorrectly() {
-        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 7, currentVersionCode = 8))
-        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 8, currentVersionCode = 8))
-        assertTrue(UpdateChecker.isUpdateAvailable(latestVersionCode = 9, currentVersionCode = 8))
-        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 8))
-        assertTrue(UpdateChecker.isUpdateAvailable(latestVersionCode = 9))
+        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 8, currentVersionCode = 9))
+        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 9, currentVersionCode = 9))
+        assertTrue(UpdateChecker.isUpdateAvailable(latestVersionCode = 10, currentVersionCode = 9))
+        assertFalse(UpdateChecker.isUpdateAvailable(latestVersionCode = 9))
+        assertTrue(UpdateChecker.isUpdateAvailable(latestVersionCode = 10))
     }
 
     @Test
