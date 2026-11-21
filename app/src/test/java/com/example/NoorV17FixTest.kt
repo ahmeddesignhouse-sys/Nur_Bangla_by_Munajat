@@ -35,12 +35,13 @@ class NoorV17FixTest {
     @Test
     fun shareCardRendersFullContentWithoutClippingForAllEntries() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        DailyInspirationCatalog.initialize(context)
         val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Dhaka")).apply {
             set(2026, Calendar.NOVEMBER, 20, 10, 0, 0)
         }
 
-        // Verify all 21 rotating days render cleanly in Story (1080x1920) & Feed (1080x1080)
-        for (dayOffset in 0 until DailyInspirationCatalog.HADITHS.size) {
+        // Verify 25 spread days across the year render cleanly in Story (1080x1920) & Feed (1080x1080)
+        for (dayOffset in 0 until 365 step 15) {
             val dayCal = (cal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, dayOffset) }
             val entry = DailyInspirationCatalog.forDate(dayCal)
 

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -35,9 +36,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -114,9 +113,7 @@ fun ProfileSettingsScreen(
     onWaqtReminderMinutesChanged: (WaqtType, Int) -> Unit,
     onGuestGoogleSignInSuccess: (String) -> Unit,
     onSignOutClick: () -> Unit,
-    onStatusMessage: (String) -> Unit,
-    isCheckingForUpdate: Boolean = false,
-    onCheckForUpdates: () -> Unit = {}
+    onStatusMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -414,12 +411,12 @@ fun ProfileSettingsScreen(
             }
         }
 
-        // App Version, What's New & In-App Self-Update Card (Right next to Language)
+        // App Version, What's New & About Card (Play Store release — no self-update)
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("app_update_settings_card"),
+                    .testTag("app_about_settings_card"),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(18.dp)
             ) {
@@ -438,21 +435,21 @@ fun ProfileSettingsScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.SystemUpdate,
+                                imageVector = Icons.Default.Info,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Column {
                                 Text(
-                                    text = tr(isEn, "অ্যাপ ভার্সন ও আপডেট", "App Version & Updates"),
+                                    text = tr(isEn, "অ্যাপ ভার্সন ও পরিচিতি", "App Version & About"),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = tr(
                                         isEn,
-                                        "নতুন ভার্সন এলে সরাসরি ডাউনলোড ও ইনস্টল করুন",
-                                        "Check and install new APK releases directly"
+                                        "নূর বাংলা — বাংলা ইসলামিক নামাজ, কুরআন ও দোয়া অ্যাপ",
+                                        "Nur Bangla — Islamic Prayer Times, Quran & Dua App"
                                     ),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -499,8 +496,8 @@ fun ProfileSettingsScreen(
                             Text(
                                 text = tr(
                                     isEn,
-                                    "• মসজিদ ও হালাল ফাইন্ডারে ৫টি ফ্রি ওভারপাস মিরর, নমিনাটিম, সংরক্ষিত অফলাইন তালিকা ও আসল ডায়াগনস্টিক।\n• মাকরুহ সময়সহ সকল স্ক্রিনের টেক্সট বড় ফন্টেও একদম পরিষ্কার ও প্রশস্ত।\n• কিবলা কম্পাসে সেন্সর ফিউশন, সত্য উত্তর (True North) ও ক্যালিব্রেশন গাইড।\n• দৈনিক হাদিস ও আয়াত শেয়ার কার্ডে ৪টি থিম, বড় ফন্ট, লাইভ প্রিভিউ ও সরাসরি সোশ্যাল শেয়ার।",
-                                    "• Mosque & Halal Finder: 5 free Overpass mirrors, Nominatim, saved offline list & real diagnostics.\n• Wide, crisp typography across Makruh times & every screen (Normal & Large font).\n• Qibla Compass with sensor fusion, True North declination & calibration guidance.\n• Redesigned Share Card with 4 themes, larger text, live customizer & direct app sharing."
+                                    "• ১,০৯৫টি সহিহ হাদিস ও ১,০৯৫টি কুরআনের আয়াত — প্রতিদিন ৩ ঘণ্টা পর পর নতুন স্লট ও বিশেষ দিনের ব্যাজ।\n• শেয়ার কার্ডে ১২টি থিম, ৫টি ফন্ট সাইজ (Small–XXL) এবং ১৫/৩০/৬০ সেকেন্ডের মিউজিকসহ MP4 ভিডিও শেয়ার।\n• ফেসবুক অ্যাকাউন্ট বদলানোর সহজ নির্দেশনা, ছবি সেভ + লেখা কপি ও অ্যাপ ডাউনলোড লিংক।\n• Google Play Store-এর জন্য প্রস্তুত নিরাপদ রিলিজ।",
+                                    "• 1,095 verified Hadiths & 1,095 Quran Ayahs rotating every 3 hours with special-day badges.\n• Share Card Studio: 12 Islamic themes, 5 text sizes (Small–XXL) & 15/30/60s MP4 video with royalty-free music.\n• Facebook account switch guide, Save Image + Copy Caption, and tap/long-press app link.\n• Play Store compliant release build."
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -508,30 +505,33 @@ fun ProfileSettingsScreen(
                         }
                     }
 
-                    Button(
-                        onClick = onCheckForUpdates,
-                        enabled = !isCheckingForUpdate,
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // About Row
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("check_for_updates_button"),
-                        shape = RoundedCornerShape(14.dp)
+                            .testTag("settings_about_developer_row"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isCheckingForUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = tr(isEn, "পরিচিতি (About)", "About"),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text(tr(isEn, "আপডেট যাচাই করা হচ্ছে...", "Checking for updates..."))
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
+                            Text(
+                                text = tr(
+                                    isEn,
+                                    "ডেভেলপার: বুলবুল আহমেদ • Developed by Bulbul Ahmed © 2026",
+                                    "Developed by Bulbul Ahmed © 2026"
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.size(8.dp))
-                            Text(tr(isEn, "আপডেট যাচাই করুন", "Check for Updates"))
                         }
                     }
                 }

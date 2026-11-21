@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.DailyShareSheet
 import com.example.ui.theme.AmiriFontFamily
+import com.example.util.AppLinks
 import com.example.util.BanglaUtils
 import com.example.util.DailyInspirationEntry
 import com.example.util.LocalAppLanguage
@@ -63,6 +64,7 @@ import com.example.util.tr
 @Composable
 fun DailyInspirationScreen(
     entries: List<DailyInspirationEntry>,
+    nextSlotCountdown: String = "",
     onStatusMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -191,6 +193,56 @@ fun DailyInspirationScreen(
                 }
             }
 
+            // Slot info + Special-day badge + Live next-slot countdown
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    activeEntry.specialDayLabel(isEn)?.let { specialLabel ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.testTag("daily_screen_special_day_badge")
+                        ) {
+                            Text(
+                                text = "★ $specialLabel",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("daily_screen_slot_countdown_bar")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "${tr(isEn, "স্লট", "Slot")}: ${activeEntry.slotLabel(isEn)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (activeEntry.daysAgo == 0 && nextSlotCountdown.isNotBlank()) {
+                                Text(
+                                    text = nextSlotCountdown,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Full Hadith Card (Arabic + Bangla Meaning + English Meaning)
             item {
                 val hadith = activeEntry.hadith
@@ -239,7 +291,7 @@ fun DailyInspirationScreen(
                                 IconButton(
                                     onClick = {
                                         copyText(
-                                            "${hadith.arabic}\n\nবাংলা: ${hadith.bangla}\nEnglish: ${hadith.english}\n— ${hadith.source(isEn)}"
+                                            "${hadith.arabic}\n\nবাংলা: ${hadith.bangla}\nEnglish: ${hadith.english}\n— ${hadith.source(isEn)}\n\n${AppLinks.shareCaptionFooter(isEn)}"
                                         )
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
@@ -253,7 +305,7 @@ fun DailyInspirationScreen(
                                 IconButton(
                                     onClick = {
                                         shareText(
-                                            "${hadith.arabic}\n\nবাংলা: ${hadith.bangla}\nEnglish: ${hadith.english}\n— ${hadith.source(isEn)}"
+                                            "${hadith.arabic}\n\nবাংলা: ${hadith.bangla}\nEnglish: ${hadith.english}\n— ${hadith.source(isEn)}\n\n${AppLinks.shareCaptionFooter(isEn)}"
                                         )
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
@@ -356,7 +408,7 @@ fun DailyInspirationScreen(
                                 IconButton(
                                     onClick = {
                                         copyText(
-                                            "${ayah.arabic}\n\nবাংলা: ${ayah.bangla}\nEnglish: ${ayah.english}\n— ${ayah.source(isEn)}"
+                                            "${ayah.arabic}\n\nবাংলা: ${ayah.bangla}\nEnglish: ${ayah.english}\n— ${ayah.source(isEn)}\n\n${AppLinks.shareCaptionFooter(isEn)}"
                                         )
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()
@@ -370,7 +422,7 @@ fun DailyInspirationScreen(
                                 IconButton(
                                     onClick = {
                                         shareText(
-                                            "${ayah.arabic}\n\nবাংলা: ${ayah.bangla}\nEnglish: ${ayah.english}\n— ${ayah.source(isEn)}"
+                                            "${ayah.arabic}\n\nবাংলা: ${ayah.bangla}\nEnglish: ${ayah.english}\n— ${ayah.source(isEn)}\n\n${AppLinks.shareCaptionFooter(isEn)}"
                                         )
                                     },
                                     modifier = Modifier.minimumInteractiveComponentSize()

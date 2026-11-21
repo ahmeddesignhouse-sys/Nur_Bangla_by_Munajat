@@ -882,6 +882,54 @@ fun HomeDashboardScreen(
                             }
                         }
 
+                        // Special-day badge (Friday / Ramadan / Eid / Arafah / Ashura / Shab-e-Barat) + Slot & Countdown
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            dailyInspiration.specialDayLabel(isEn)?.let { specialLabel ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.testTag("home_daily_special_day_badge")
+                                ) {
+                                    Text(
+                                        text = "★ $specialLabel",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("home_daily_slot_countdown_bar")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${tr(isEn, "বর্তমান স্লট", "Current Slot")}: ${dailyInspiration.slotLabel(isEn)}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    if (uiState.nextInspirationCountdown.isNotBlank()) {
+                                        Text(
+                                            text = uiState.nextInspirationCountdown,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Hadith preview
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text(

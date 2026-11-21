@@ -1,6 +1,5 @@
 package com.example.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -45,7 +44,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,12 +81,7 @@ import com.example.ui.screens.QuranSearchScreen
 import com.example.ui.screens.RamadanCalendarScreen
 import com.example.ui.screens.ZakatCalculatorScreen
 import com.example.ui.theme.NoorBanglaTheme
-import com.example.util.AppUpdateInfo
 import com.example.util.LocalAppLanguage
-import com.example.util.UpdateCheckResult
-import com.example.util.UpdateChecker
-import com.example.util.UpdateDialog
-import com.example.util.UpdateDialogState
 import com.example.util.isEnglishLang
 import com.example.util.tr
 import com.example.widget.PrayerTimesWidgetProvider
@@ -96,7 +89,6 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -240,7 +232,6 @@ fun NoorApp() {
                             MainNoorContent(
                                 currentUserId = session.guestUserId,
                                 isGuest = true,
-                                enableAutoUpdateCheck = true,
                                 initialBannerMessage = transitionMessage,
                                 onConsumeInitialBannerMessage = { transitionMessage = null },
                                 onGuestGoogleSignInSuccess = {
@@ -257,7 +248,6 @@ fun NoorApp() {
                             MainNoorContent(
                                 currentUserId = session.guestUserId,
                                 isGuest = true,
-                                enableAutoUpdateCheck = false,
                                 initialBannerMessage = transitionMessage,
                                 onConsumeInitialBannerMessage = { transitionMessage = null },
                                 onGuestGoogleSignInSuccess = {},
@@ -372,7 +362,6 @@ fun NoorApp() {
                             MainNoorContent(
                                 currentUserId = session.userId,
                                 isGuest = false,
-                                enableAutoUpdateCheck = true,
                                 initialBannerMessage = transitionMessage,
                                 onConsumeInitialBannerMessage = { transitionMessage = null },
                                 onGuestGoogleSignInSuccess = {},
@@ -403,7 +392,6 @@ fun NoorApp() {
 private fun MainNoorContent(
     currentUserId: String,
     isGuest: Boolean,
-    enableAutoUpdateCheck: Boolean,
     initialBannerMessage: String?,
     onConsumeInitialBannerMessage: () -> Unit,
     onGuestGoogleSignInSuccess: (String) -> Unit,
@@ -411,14 +399,8 @@ private fun MainNoorContent(
 ) {
     val context = LocalContext.current
     val isEn = isEnglishLang(LocalAppLanguage.current)
-    val coroutineScope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
     val snackbarHostState = remember { SnackbarHostState() }
-
-    var updateDialogState by remember { mutableStateOf<UpdateDialogState>(UpdateDialogState.Hidden) }
-    var isCheckingForUpdate by remember { mutableStateOf(false) }
-    var downloadJob by remember { mutableStateOf<Job?>(null) }
-    var hasAutoCheckedUpdate by rememberSaveable(currentUserId) { mutableStateOf(false) }
 
     val viewModel: NoorViewModel = viewModel(
         key = currentUserId,
@@ -437,101 +419,6 @@ private fun MainNoorContent(
     )
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    fun runUpdateCheck(manual: Boolean) {
-        if (isCheckingForUpdate) return
-        isCheckingForUpdate = true
-        coroutineScope.launch {
-            val result = UpdateChecker.checkForUpdate(context)
-            isCheckingForUpdate = false
-            when (result) {
-                is UpdateCheckResult.UpdateAvailable -> {
-                    updateDialogState = UpdateDialogState.Available(result.info)
-                }
-                is UpdateCheckResult.UpToDate -> {
-                    if (manual) {
-                        viewModel.showMessage(
-                            tr(
-                                isEn,
-                                "আপনি সর্বশেষ ভার্সন ব্যবহার করছেন",
-                                "You are on the latest version"
-                            )
-                        )
-                    }
-                }
-                is UpdateCheckResult.NoInternet -> {
-                    Toast.makeText(
-                        context,
-                        tr(
-                            isEn,
-                            "ইন্টারনেট সংযোগ নেই, আপডেট যাচাই করা যায়নি",
-                            "No internet, could not check for updates"
-                        ),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                is UpdateCheckResult.Error -> {
-                    if (manual) {
-                        viewModel.showMessage(
-                            tr(
-                                isEn,
-                                "আপডেট যাচাই করা যায়নি (${result.message})",
-                                "Could not check for updates (${result.message})"
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun startApkDownload(info: AppUpdateInfo) {
-        downloadJob?.cancel()
-        updateDialogState = UpdateDialogState.Downloading(
-            info = info,
-            progressPercent = 0,
-            downloadedBytes = 0L,
-            totalBytes = -1L
-        )
-        downloadJob = coroutineScope.launch {
-            val res = UpdateChecker.downloadApk(
-                context = context,
-                apkUrl = info.apkUrl,
-                versionName = info.latestVersionName
-            ) { pct, downloaded, total ->
-                updateDialogState = UpdateDialogState.Downloading(
-                    info = info,
-                    progressPercent = pct,
-                    downloadedBytes = downloaded,
-                    totalBytes = total
-                )
-            }
-            res.onSuccess { apkFile ->
-                if (UpdateChecker.canInstallPackages(context)) {
-                    val launched = UpdateChecker.launchApkInstaller(context, apkFile)
-                    if (launched) {
-                        updateDialogState = if (info.forceUpdate) {
-                            UpdateDialogState.Available(info)
-                        } else {
-                            UpdateDialogState.Hidden
-                        }
-                    } else {
-                        updateDialogState = UpdateDialogState.DownloadFailed(
-                            info = info,
-                            errorMessage = tr(isEn, "ইনস্টলার খোলা যায়নি", "Could not open installer")
-                        )
-                    }
-                } else {
-                    updateDialogState = UpdateDialogState.NeedsInstallPermission(info, apkFile)
-                }
-            }.onFailure { err ->
-                updateDialogState = UpdateDialogState.DownloadFailed(
-                    info = info,
-                    errorMessage = err.localizedMessage ?: "Network error"
-                )
-            }
-        }
-    }
 
     LaunchedEffect(initialBannerMessage) {
         if (initialBannerMessage != null) {
@@ -559,14 +446,6 @@ private fun MainNoorContent(
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: NoorRoute.HOME.route
-
-    // Auto-check for updates on app launch ONLY when on the Home screen (never on AuthScreen)
-    LaunchedEffect(enableAutoUpdateCheck, currentRoute) {
-        if (enableAutoUpdateCheck && !hasAutoCheckedUpdate && currentRoute == NoorRoute.HOME.route) {
-            hasAutoCheckedUpdate = true
-            runUpdateCheck(manual = false)
-        }
-    }
 
     val activeTabRoute = when (currentRoute) {
         ROUTE_DAILY_INSPIRATION -> NoorRoute.HOME.route
@@ -718,6 +597,7 @@ private fun MainNoorContent(
                         composable(ROUTE_DAILY_INSPIRATION) {
                             DailyInspirationScreen(
                                 entries = uiState.recentInspirations,
+                                nextSlotCountdown = uiState.nextInspirationCountdown,
                                 onStatusMessage = viewModel::showMessage,
                                 onBack = { navController.popBackStack() }
                             )
@@ -920,44 +800,12 @@ private fun MainNoorContent(
                                 onSignOutClick = {
                                     onSignOutToGuest(credentialManager)
                                 },
-                                onStatusMessage = viewModel::showMessage,
-                                isCheckingForUpdate = isCheckingForUpdate,
-                                onCheckForUpdates = { runUpdateCheck(manual = true) }
+                                onStatusMessage = viewModel::showMessage
                             )
                         }
                     }
                 }
             }
         }
-
-        UpdateDialog(
-            state = updateDialogState,
-            onStartDownload = { info -> startApkDownload(info) },
-            onCancelDownload = { info ->
-                downloadJob?.cancel()
-                downloadJob = null
-                updateDialogState = if (info.forceUpdate) {
-                    UpdateDialogState.Available(info)
-                } else {
-                    UpdateDialogState.Hidden
-                }
-            },
-            onDismiss = { updateDialogState = UpdateDialogState.Hidden },
-            onOpenInstallPermissionSettings = {
-                UpdateChecker.openUnknownSourcesSettings(context)
-            },
-            onRetryInstall = { info, apkFile ->
-                if (UpdateChecker.canInstallPackages(context)) {
-                    val launched = UpdateChecker.launchApkInstaller(context, apkFile)
-                    if (launched) {
-                        updateDialogState = if (info.forceUpdate) {
-                            UpdateDialogState.Available(info)
-                        } else {
-                            UpdateDialogState.Hidden
-                        }
-                    }
-                }
-            }
-        )
     }
 }

@@ -1,6 +1,7 @@
 package com.example.util
 
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -49,35 +50,109 @@ enum class ShareCardFormat(
     fun label(isEnglish: Boolean): String = if (isEnglish) labelEn else labelBn
 }
 
+enum class MosqueSilhouetteStyle {
+    CLASSIC_GRAND,
+    OTTOMAN_TRIPLE,
+    CRESCENT_ARCH,
+    NABAWI_LANTERN
+}
+
+/**
+ * 12 curated Islamic Share Card themes:
+ * - Existing 4 unchanged: DARK_MOSQUE (Dark Gold), LIGHT_IVORY, EMERALD_MOSQUE, MIDNIGHT_BLUE
+ * - New 8 in v1.9: SUNSET_ROSE_GOLD, TEAL_DAWN, ROYAL_PURPLE, DESERT_SAND, DEEP_FOREST,
+ *   CRIMSON_DAWN, OCEAN_BLUE, AMBER_HERITAGE
+ */
 enum class ShareCardTheme(
     val labelBn: String,
     val labelEn: String,
     val previewBgArgb: Long,
-    val previewAccentArgb: Long
+    val previewAccentArgb: Long,
+    val silhouetteStyle: MosqueSilhouetteStyle
 ) {
     DARK_MOSQUE(
         labelBn = "ডার্ক গোল্ড",
         labelEn = "Dark Gold",
         previewBgArgb = 0xFF0A2A1E,
-        previewAccentArgb = 0xFFE8C468
+        previewAccentArgb = 0xFFE8C468,
+        silhouetteStyle = MosqueSilhouetteStyle.CLASSIC_GRAND
     ),
     LIGHT_IVORY(
         labelBn = "লাইট আইভরি",
         labelEn = "Light Ivory",
         previewBgArgb = 0xFFFAF4E6,
-        previewAccentArgb = 0xFF5A3B1E
+        previewAccentArgb = 0xFF5A3B1E,
+        silhouetteStyle = MosqueSilhouetteStyle.CRESCENT_ARCH
     ),
     EMERALD_MOSQUE(
         labelBn = "এমেরাল্ড মসজিদ",
         labelEn = "Emerald Mosque",
         previewBgArgb = 0xFF05383B,
-        previewAccentArgb = 0xFFF2CF72
+        previewAccentArgb = 0xFFF2CF72,
+        silhouetteStyle = MosqueSilhouetteStyle.NABAWI_LANTERN
     ),
     MIDNIGHT_BLUE(
         labelBn = "মিডনাইট ব্লু",
         labelEn = "Midnight Blue",
         previewBgArgb = 0xFF091833,
-        previewAccentArgb = 0xFFEBC86E
+        previewAccentArgb = 0xFFEBC86E,
+        silhouetteStyle = MosqueSilhouetteStyle.OTTOMAN_TRIPLE
+    ),
+    SUNSET_ROSE_GOLD(
+        labelBn = "সানসেট রোজ গোল্ড",
+        labelEn = "Sunset Rose Gold",
+        previewBgArgb = 0xFF3E182A,
+        previewAccentArgb = 0xFFF3B7A2,
+        silhouetteStyle = MosqueSilhouetteStyle.CRESCENT_ARCH
+    ),
+    TEAL_DAWN(
+        labelBn = "টিল ডন",
+        labelEn = "Teal Dawn",
+        previewBgArgb = 0xFF0B3F4A,
+        previewAccentArgb = 0xFF9BE7DC,
+        silhouetteStyle = MosqueSilhouetteStyle.OTTOMAN_TRIPLE
+    ),
+    ROYAL_PURPLE(
+        labelBn = "রয়্যাল পার্পল",
+        labelEn = "Royal Purple",
+        previewBgArgb = 0xFF251242,
+        previewAccentArgb = 0xFFE8C77B,
+        silhouetteStyle = MosqueSilhouetteStyle.CLASSIC_GRAND
+    ),
+    DESERT_SAND(
+        labelBn = "ডেজার্ট স্যান্ড",
+        labelEn = "Desert Sand",
+        previewBgArgb = 0xFFF3E2C6,
+        previewAccentArgb = 0xFF7D4E1D,
+        silhouetteStyle = MosqueSilhouetteStyle.CRESCENT_ARCH
+    ),
+    DEEP_FOREST(
+        labelBn = "ডিপ ফরেস্ট",
+        labelEn = "Deep Forest",
+        previewBgArgb = 0xFF0B2415,
+        previewAccentArgb = 0xFFD9C074,
+        silhouetteStyle = MosqueSilhouetteStyle.NABAWI_LANTERN
+    ),
+    CRIMSON_DAWN(
+        labelBn = "ক্রিমসন ডন",
+        labelEn = "Crimson Dawn",
+        previewBgArgb = 0xFF42101A,
+        previewAccentArgb = 0xFFF4CE7B,
+        silhouetteStyle = MosqueSilhouetteStyle.OTTOMAN_TRIPLE
+    ),
+    OCEAN_BLUE(
+        labelBn = "ওশান ব্লু",
+        labelEn = "Ocean Blue",
+        previewBgArgb = 0xFF082747,
+        previewAccentArgb = 0xFF8CD5F7,
+        silhouetteStyle = MosqueSilhouetteStyle.CLASSIC_GRAND
+    ),
+    AMBER_HERITAGE(
+        labelBn = "অ্যাম্বার হেরিটেজ",
+        labelEn = "Amber Heritage",
+        previewBgArgb = 0xFF3A230D,
+        previewAccentArgb = 0xFFF7C96B,
+        silhouetteStyle = MosqueSilhouetteStyle.NABAWI_LANTERN
     );
 
     fun label(isEnglish: Boolean): String = if (isEnglish) labelEn else labelBn
@@ -90,7 +165,9 @@ enum class ShareCardFontSize(
 ) {
     SMALL(0.90f, "ছোট", "Small"),
     MEDIUM(1.00f, "মাঝারি", "Medium"),
-    LARGE(1.12f, "বড়", "Large");
+    LARGE(1.12f, "বড়", "Large"),
+    EXTRA_LARGE(1.28f, "আরও বড়", "Extra Large"),
+    XXL(1.45f, "অতি বড় (XXL)", "XXL");
 
     fun label(isEnglish: Boolean): String = if (isEnglish) labelEn else labelBn
 }
@@ -173,8 +250,11 @@ data class RenderedShareCard(
 
 /**
  * Generates high-resolution, zero-clipping PNG share cards (1080x1920 Story/Status and
- * 1080x1080 Feed/Post) with 4 rich Islamic themes, ornate gold border, vector mosque silhouette,
- * generous readable typography, direct app share targets, and zero-permission Gallery save.
+ * 1080x1080 Feed/Post) with 12 rich Islamic themes, 5 font sizes (Small to XXL),
+ * ornate gold border, 4 vector mosque silhouette variants, special-day badge,
+ * direct app share targets, Facebook account-switch helper, and zero-permission Gallery save.
+ *
+ * NOTE: Zero QR codes anywhere per user request.
  */
 object DailyShareCardGenerator {
 
@@ -255,6 +335,126 @@ object DailyShareCardGenerator {
             sourceText = Color.parseColor("#C5D5EE"),
             dividerColor = Color.parseColor("#355282")
         )
+        ShareCardTheme.SUNSET_ROSE_GOLD -> CardPalette(
+            bgTop = Color.parseColor("#351324"),
+            bgBottom = Color.parseColor("#5E2339"),
+            panelFill = Color.parseColor("#471A2D"),
+            panelStroke = Color.parseColor("#D49583"),
+            ornateGold = Color.parseColor("#F6C0AE"),
+            silhouetteFill = Color.parseColor("#38F6C0AE"),
+            badgeBg = Color.parseColor("#682841"),
+            badgeText = Color.parseColor("#FFE1D5"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFF9F6"),
+            bodyText = Color.parseColor("#FDF1EE"),
+            sourceText = Color.parseColor("#F0CEC4"),
+            dividerColor = Color.parseColor("#8A475C")
+        )
+        ShareCardTheme.TEAL_DAWN -> CardPalette(
+            bgTop = Color.parseColor("#08333D"),
+            bgBottom = Color.parseColor("#115966"),
+            panelFill = Color.parseColor("#0D4652"),
+            panelStroke = Color.parseColor("#73C9BE"),
+            ornateGold = Color.parseColor("#A5EFE4"),
+            silhouetteFill = Color.parseColor("#36A5EFE4"),
+            badgeBg = Color.parseColor("#166370"),
+            badgeText = Color.parseColor("#DCFFF9"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFFFFF"),
+            bodyText = Color.parseColor("#EFFBFB"),
+            sourceText = Color.parseColor("#C4E9EA"),
+            dividerColor = Color.parseColor("#3B8C94")
+        )
+        ShareCardTheme.ROYAL_PURPLE -> CardPalette(
+            bgTop = Color.parseColor("#1E0D38"),
+            bgBottom = Color.parseColor("#391D63"),
+            panelFill = Color.parseColor("#2B154D"),
+            panelStroke = Color.parseColor("#C4A05A"),
+            ornateGold = Color.parseColor("#F0CF82"),
+            silhouetteFill = Color.parseColor("#36F0CF82"),
+            badgeBg = Color.parseColor("#442473"),
+            badgeText = Color.parseColor("#FFE8AC"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFFDF7"),
+            bodyText = Color.parseColor("#F7F3FC"),
+            sourceText = Color.parseColor("#DACDEC"),
+            dividerColor = Color.parseColor("#6D4A9E")
+        )
+        ShareCardTheme.DESERT_SAND -> CardPalette(
+            bgTop = Color.parseColor("#F5E6CD"),
+            bgBottom = Color.parseColor("#E6CCA4"),
+            panelFill = Color.parseColor("#FCF5E8"),
+            panelStroke = Color.parseColor("#B68544"),
+            ornateGold = Color.parseColor("#87531A"),
+            silhouetteFill = Color.parseColor("#2E87531A"),
+            badgeBg = Color.parseColor("#EAD2AE"),
+            badgeText = Color.parseColor("#47290D"),
+            titleText = Color.parseColor("#2D1908"),
+            arabicText = Color.parseColor("#261406"),
+            bodyText = Color.parseColor("#2F1B0B"),
+            sourceText = Color.parseColor("#613E1E"),
+            dividerColor = Color.parseColor("#C29559")
+        )
+        ShareCardTheme.DEEP_FOREST -> CardPalette(
+            bgTop = Color.parseColor("#081D11"),
+            bgBottom = Color.parseColor("#143822"),
+            panelFill = Color.parseColor("#0F2B1A"),
+            panelStroke = Color.parseColor("#9B8646"),
+            ornateGold = Color.parseColor("#E3CB7F"),
+            silhouetteFill = Color.parseColor("#33E3CB7F"),
+            badgeBg = Color.parseColor("#1B472D"),
+            badgeText = Color.parseColor("#F7E6A8"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FCFDF7"),
+            bodyText = Color.parseColor("#F1F7F2"),
+            sourceText = Color.parseColor("#CBE0CF"),
+            dividerColor = Color.parseColor("#3B6E4E")
+        )
+        ShareCardTheme.CRIMSON_DAWN -> CardPalette(
+            bgTop = Color.parseColor("#3A0D16"),
+            bgBottom = Color.parseColor("#631926"),
+            panelFill = Color.parseColor("#4B131E"),
+            panelStroke = Color.parseColor("#D4A955"),
+            ornateGold = Color.parseColor("#F7D482"),
+            silhouetteFill = Color.parseColor("#36F7D482"),
+            badgeBg = Color.parseColor("#6E202E"),
+            badgeText = Color.parseColor("#FFE8AC"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFFDF7"),
+            bodyText = Color.parseColor("#FDF2F3"),
+            sourceText = Color.parseColor("#F0CCD1"),
+            dividerColor = Color.parseColor("#8C3A48")
+        )
+        ShareCardTheme.OCEAN_BLUE -> CardPalette(
+            bgTop = Color.parseColor("#06203B"),
+            bgBottom = Color.parseColor("#0E3E6B"),
+            panelFill = Color.parseColor("#0B2E52"),
+            panelStroke = Color.parseColor("#6FB8E0"),
+            ornateGold = Color.parseColor("#9ADDFB"),
+            silhouetteFill = Color.parseColor("#369ADDFB"),
+            badgeBg = Color.parseColor("#14497A"),
+            badgeText = Color.parseColor("#DEF4FF"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFFFFF"),
+            bodyText = Color.parseColor("#F0F7FC"),
+            sourceText = Color.parseColor("#C7E1F5"),
+            dividerColor = Color.parseColor("#3572A6")
+        )
+        ShareCardTheme.AMBER_HERITAGE -> CardPalette(
+            bgTop = Color.parseColor("#301D0A"),
+            bgBottom = Color.parseColor("#543412"),
+            panelFill = Color.parseColor("#3E260E"),
+            panelStroke = Color.parseColor("#D6A249"),
+            ornateGold = Color.parseColor("#F9D076"),
+            silhouetteFill = Color.parseColor("#38F9D076"),
+            badgeBg = Color.parseColor("#5C3915"),
+            badgeText = Color.parseColor("#FFE8AE"),
+            titleText = Color.parseColor("#FFFFFF"),
+            arabicText = Color.parseColor("#FFFBF0"),
+            bodyText = Color.parseColor("#FCF5E8"),
+            sourceText = Color.parseColor("#EAD4AE"),
+            dividerColor = Color.parseColor("#875D27")
+        )
     }
 
     private fun loadTypefaceSafely(context: Context, fontRes: Int, fallback: Typeface): Typeface {
@@ -282,11 +482,13 @@ object DailyShareCardGenerator {
         val arabicTypeface = loadTypefaceSafely(context, R.font.amiri, Typeface.SERIF)
 
         val isStory = format == ShareCardFormat.STORY
-        val outerPad = if (isStory) 62f else 48f
-        val innerPad = if (isStory) 40f else 30f
-        val headerHeight = if (isStory) 246f else 156f
-        val footerHeight = if (isStory) 96f else 68f
-        val availableBodyHeight = (height - outerPad * 2f - headerHeight - footerHeight).coerceAtLeast(300f)
+        val specialLabel = entry.specialDayLabel(isEnglish)
+        val outerPad = if (isStory) 58f else 44f
+        val innerPad = if (isStory) 38f else 28f
+        val specialExtra = if (specialLabel != null) (if (isStory) 48f else 34f) else 0f
+        val headerHeight = (if (isStory) 240f else 148f) + specialExtra
+        val footerHeight = if (isStory) 92f else 64f
+        val availableBodyHeight = (height - outerPad * 2f - headerHeight - footerHeight).coerceAtLeast(280f)
         val contentWidth = (width - outerPad * 2f - innerPad * 2f).toInt().coerceAtLeast(300)
 
         val hadithHeader = if (isEnglish) "HADITH OF THE DAY" else "আজকের হাদিস"
@@ -297,7 +499,6 @@ object DailyShareCardGenerator {
         val ayahSource = "— ${entry.ayah.source(isEnglish)}"
 
         val userMul = fontSize.scaleMultiplier
-        // Generous base typography on 1080x1920 Story: Hadith >= 34, Ayah Arabic >= 38, Translation >= 26
         val baseHadithArabicSize = (if (isStory) 44f else 30f) * userMul
         val baseHadithBodySize = (if (isStory) 38f else 26f) * userMul
         val baseAyahArabicSize = (if (isStory) 50f else 33f) * userMul
@@ -305,12 +506,13 @@ object DailyShareCardGenerator {
         val baseSourceSize = (if (isStory) 26f else 18f) * userMul
         val baseBadgeSize = (if (isStory) 25f else 18f) * userMul
 
-        // Auto-shrink ONLY if overflowing so text stays large & crisp yet NEVER clips
+        // Auto-shrink ONLY enough to fit so EVERY theme x font size x format NEVER clips
         var chosenScale = 1.0f
         var chosenLayouts: MeasuredBodyLayouts? = null
         val candidateScales = floatArrayOf(
             1.00f, 0.95f, 0.90f, 0.85f, 0.80f, 0.75f,
-            0.70f, 0.65f, 0.60f, 0.55f, 0.50f, 0.45f
+            0.70f, 0.65f, 0.60f, 0.56f, 0.52f, 0.48f,
+            0.44f, 0.40f, 0.36f, 0.32f, 0.28f
         )
         for (scale in candidateScales) {
             val measured = measureBodyLayouts(
@@ -359,41 +561,72 @@ object DailyShareCardGenerator {
         }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        // 2. Ornate double decorative gold border + corner flourishes
+        // 2. Ornate double decorative border + corner flourishes
         drawOrnateGoldBorder(canvas, width.toFloat(), height.toFloat(), palette.ornateGold)
 
-        // 3. Vector Mosque Silhouette at top header
-        val mosqueBaseY = outerPad + (if (isStory) 118f else 74f)
+        // 3. Vector Mosque Silhouette variant at top header
+        val mosqueBaseY = outerPad + (if (isStory) 114f else 70f)
         drawMosqueSilhouette(
             canvas = canvas,
+            silhouetteStyle = theme.silhouetteStyle,
             centerX = width / 2f,
             baseY = mosqueBaseY,
-            scale = if (isStory) 1.0f else 0.66f,
+            scale = if (isStory) 1.0f else 0.64f,
             fillColor = palette.silhouetteFill,
             strokeColor = palette.ornateGold
         )
 
-        // 4. Header: Brand name + Gregorian & Hijri date
+        // 4. Header: Brand name + Gregorian & Hijri date + optional Special Day pill
         val brandPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = palette.ornateGold
             typeface = banglaBold
-            textSize = if (isStory) 50f else 36f
+            textSize = if (isStory) 48f else 35f
             textAlign = Paint.Align.CENTER
         }
         val subBrandPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = palette.sourceText
             typeface = banglaTypeface
-            textSize = if (isStory) 27f else 20f
+            textSize = if (isStory) 26f else 19f
             textAlign = Paint.Align.CENTER
         }
         val brandTitle = if (isEnglish) "নূর বাংলা  •  Nur Bangla" else "নূর বাংলা"
         val dateLine = "${entry.gregorianDate(isEnglish)}  •  ${entry.hijriDate(isEnglish)}"
-        val titleY = mosqueBaseY + (if (isStory) 54f else 36f)
+        val titleY = mosqueBaseY + (if (isStory) 50f else 34f)
         canvas.drawText(brandTitle, width / 2f, titleY, brandPaint)
-        canvas.drawText(dateLine, width / 2f, titleY + (if (isStory) 42f else 30f), subBrandPaint)
+        canvas.drawText(dateLine, width / 2f, titleY + (if (isStory) 40f else 28f), subBrandPaint)
+
+        if (specialLabel != null) {
+            val spPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.badgeText
+                typeface = banglaBold
+                textSize = if (isStory) 24f else 18f
+                textAlign = Paint.Align.CENTER
+            }
+            val textW = spPaint.measureText(specialLabel)
+            val pillTop = titleY + (if (isStory) 54f else 36f)
+            val pillH = if (isStory) 38f else 28f
+            val pillRect = RectF(
+                width / 2f - textW / 2f - 24f,
+                pillTop,
+                width / 2f + textW / 2f + 24f,
+                pillTop + pillH
+            )
+            val spBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.badgeBg
+                style = Paint.Style.FILL
+            }
+            val spBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.ornateGold
+                style = Paint.Style.STROKE
+                strokeWidth = 2f
+            }
+            canvas.drawRoundRect(pillRect, 18f, 18f, spBgPaint)
+            canvas.drawRoundRect(pillRect, 18f, 18f, spBorder)
+            canvas.drawText(specialLabel, width / 2f, pillTop + pillH * 0.72f, spPaint)
+        }
 
         // Ornamental header divider with central diamond
-        val headerDividerY = outerPad + headerHeight - 16f
+        val headerDividerY = outerPad + headerHeight - 14f
         drawOrnamentalDivider(canvas, outerPad + 12f, width - outerPad - 12f, headerDividerY, palette.ornateGold)
 
         // 5. Vertically center Hadith & Ayah panels inside available region
@@ -459,18 +692,18 @@ object DailyShareCardGenerator {
         y += layouts.ayahBodyLayout.height + layouts.bodyToSourceGap
         drawLayoutAt(canvas, layouts.ayahSourceLayout, outerPad + innerPad, y)
 
-        // 6. Footer branding bar
+        // 6. Footer branding bar (text only — NO QR code)
         val footerY = height - outerPad - (if (isStory) 16f else 10f)
         val footerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = palette.ornateGold
             typeface = banglaBold
-            textSize = if (isStory) 27f else 21f
+            textSize = if (isStory) 28f else 21f
             textAlign = Paint.Align.CENTER
         }
         val footerLabel = if (isEnglish) {
-            "নূর বাংলা (Nur Bangla)  •  Daily Islamic Companion"
+            "নূর বাংলা • ডাউনলোড করুন  (Nur Bangla)"
         } else {
-            "নূর বাংলা  •  দৈনিক হাদিস, আয়াত ও নামাজের সময়সূচী"
+            "নূর বাংলা • ডাউনলোড করুন"
         }
         canvas.drawText(footerLabel, width / 2f, footerY, footerPaint)
 
@@ -506,7 +739,6 @@ object DailyShareCardGenerator {
         canvas.drawRoundRect(outerRect, 34f, 34f, outerPaint)
         canvas.drawRoundRect(innerRect, 26f, 26f, innerPaint)
 
-        // Corner diamond flourishes at all 4 corners
         val corners = listOf(
             Pair(50f, 50f),
             Pair(width - 50f, 50f),
@@ -527,6 +759,7 @@ object DailyShareCardGenerator {
 
     private fun drawMosqueSilhouette(
         canvas: Canvas,
+        silhouetteStyle: MosqueSilhouetteStyle,
         centerX: Float,
         baseY: Float,
         scale: Float,
@@ -534,77 +767,153 @@ object DailyShareCardGenerator {
         strokeColor: Int
     ) {
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = fillColor
+            this.style = Paint.Style.FILL
+            this.color = fillColor
         }
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2.6f
-            color = strokeColor
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
+            this.style = Paint.Style.STROKE
+            this.strokeWidth = 2.6f
+            this.color = strokeColor
+            this.strokeCap = Paint.Cap.ROUND
+            this.strokeJoin = Paint.Join.ROUND
         }
-
         val s = scale
-        val mosquePath = Path().apply {
-            // Baseline left to right
-            moveTo(centerX - 180f * s, baseY)
-            // Left outer minaret
-            lineTo(centerX - 180f * s, baseY - 22f * s)
-            lineTo(centerX - 160f * s, baseY - 22f * s)
-            lineTo(centerX - 160f * s, baseY - 82f * s)
-            lineTo(centerX - 152f * s, baseY - 102f * s)
-            lineTo(centerX - 144f * s, baseY - 82f * s)
-            lineTo(centerX - 144f * s, baseY - 26f * s)
-            // Left side dome
-            lineTo(centerX - 118f * s, baseY - 26f * s)
-            quadTo(centerX - 92f * s, baseY - 68f * s, centerX - 66f * s, baseY - 26f * s)
-            // Central grand pointed dome
-            cubicTo(
-                centerX - 58f * s, baseY - 78f * s,
-                centerX - 20f * s, baseY - 94f * s,
-                centerX, baseY - 114f * s
-            )
-            cubicTo(
-                centerX + 20f * s, baseY - 94f * s,
-                centerX + 58f * s, baseY - 78f * s,
-                centerX + 66f * s, baseY - 26f * s
-            )
-            // Right side dome
-            quadTo(centerX + 92f * s, baseY - 68f * s, centerX + 118f * s, baseY - 26f * s)
-            // Right outer minaret
-            lineTo(centerX + 144f * s, baseY - 26f * s)
-            lineTo(centerX + 144f * s, baseY - 82f * s)
-            lineTo(centerX + 152f * s, baseY - 102f * s)
-            lineTo(centerX + 160f * s, baseY - 82f * s)
-            lineTo(centerX + 160f * s, baseY - 22f * s)
-            lineTo(centerX + 180f * s, baseY - 22f * s)
-            lineTo(centerX + 180f * s, baseY)
-            close()
+
+        when (silhouetteStyle) {
+            MosqueSilhouetteStyle.CLASSIC_GRAND -> {
+                val path = Path().apply {
+                    moveTo(centerX - 180f * s, baseY)
+                    lineTo(centerX - 180f * s, baseY - 22f * s)
+                    lineTo(centerX - 160f * s, baseY - 22f * s)
+                    lineTo(centerX - 160f * s, baseY - 82f * s)
+                    lineTo(centerX - 152f * s, baseY - 102f * s)
+                    lineTo(centerX - 144f * s, baseY - 82f * s)
+                    lineTo(centerX - 144f * s, baseY - 26f * s)
+                    lineTo(centerX - 118f * s, baseY - 26f * s)
+                    quadTo(centerX - 92f * s, baseY - 68f * s, centerX - 66f * s, baseY - 26f * s)
+                    cubicTo(centerX - 58f * s, baseY - 78f * s, centerX - 20f * s, baseY - 94f * s, centerX, baseY - 114f * s)
+                    cubicTo(centerX + 20f * s, baseY - 94f * s, centerX + 58f * s, baseY - 78f * s, centerX + 66f * s, baseY - 26f * s)
+                    quadTo(centerX + 92f * s, baseY - 68f * s, centerX + 118f * s, baseY - 26f * s)
+                    lineTo(centerX + 144f * s, baseY - 26f * s)
+                    lineTo(centerX + 144f * s, baseY - 82f * s)
+                    lineTo(centerX + 152f * s, baseY - 102f * s)
+                    lineTo(centerX + 160f * s, baseY - 82f * s)
+                    lineTo(centerX + 160f * s, baseY - 22f * s)
+                    lineTo(centerX + 180f * s, baseY - 22f * s)
+                    lineTo(centerX + 180f * s, baseY)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+                drawCrescentFinial(canvas, centerX, baseY - 114f * s, s, strokePaint)
+            }
+
+            MosqueSilhouetteStyle.OTTOMAN_TRIPLE -> {
+                val path = Path().apply {
+                    moveTo(centerX - 196f * s, baseY)
+                    lineTo(centerX - 196f * s, baseY - 18f * s)
+                    // Tall pencil left minaret
+                    lineTo(centerX - 178f * s, baseY - 18f * s)
+                    lineTo(centerX - 178f * s, baseY - 94f * s)
+                    lineTo(centerX - 172f * s, baseY - 122f * s)
+                    lineTo(centerX - 166f * s, baseY - 94f * s)
+                    lineTo(centerX - 166f * s, baseY - 28f * s)
+                    // Stepped left semi-dome
+                    quadTo(centerX - 115f * s, baseY - 76f * s, centerX - 68f * s, baseY - 46f * s)
+                    // Broad Ottoman central dome
+                    cubicTo(centerX - 52f * s, baseY - 104f * s, centerX + 52f * s, baseY - 104f * s, centerX + 68f * s, baseY - 46f * s)
+                    // Stepped right semi-dome
+                    quadTo(centerX + 115f * s, baseY - 76f * s, centerX + 166f * s, baseY - 28f * s)
+                    // Tall pencil right minaret
+                    lineTo(centerX + 166f * s, baseY - 94f * s)
+                    lineTo(centerX + 172f * s, baseY - 122f * s)
+                    lineTo(centerX + 178f * s, baseY - 94f * s)
+                    lineTo(centerX + 178f * s, baseY - 18f * s)
+                    lineTo(centerX + 196f * s, baseY - 18f * s)
+                    lineTo(centerX + 196f * s, baseY)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+                drawCrescentFinial(canvas, centerX, baseY - 96f * s, s, strokePaint)
+            }
+
+            MosqueSilhouetteStyle.CRESCENT_ARCH -> {
+                val path = Path().apply {
+                    moveTo(centerX - 170f * s, baseY)
+                    lineTo(centerX - 170f * s, baseY - 36f * s)
+                    // Left arch pavilion
+                    quadTo(centerX - 128f * s, baseY - 64f * s, centerX - 86f * s, baseY - 36f * s)
+                    // Pointed Moroccan/Andalusian central dome
+                    lineTo(centerX - 58f * s, baseY - 36f * s)
+                    quadTo(centerX - 42f * s, baseY - 96f * s, centerX, baseY - 110f * s)
+                    quadTo(centerX + 42f * s, baseY - 96f * s, centerX + 58f * s, baseY - 36f * s)
+                    lineTo(centerX + 86f * s, baseY - 36f * s)
+                    // Right arch pavilion
+                    quadTo(centerX + 128f * s, baseY - 64f * s, centerX + 170f * s, baseY - 36f * s)
+                    lineTo(centerX + 170f * s, baseY)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+                drawCrescentFinial(canvas, centerX, baseY - 110f * s, s, strokePaint)
+            }
+
+            MosqueSilhouetteStyle.NABAWI_LANTERN -> {
+                val path = Path().apply {
+                    moveTo(centerX - 188f * s, baseY)
+                    lineTo(centerX - 188f * s, baseY - 26f * s)
+                    // Left twin slender towers
+                    lineTo(centerX - 166f * s, baseY - 26f * s)
+                    lineTo(centerX - 166f * s, baseY - 88f * s)
+                    lineTo(centerX - 158f * s, baseY - 108f * s)
+                    lineTo(centerX - 150f * s, baseY - 88f * s)
+                    lineTo(centerX - 150f * s, baseY - 32f * s)
+                    // Colonnade roofline
+                    lineTo(centerX - 72f * s, baseY - 32f * s)
+                    // Iconic tall Green Dome silhouette
+                    cubicTo(centerX - 66f * s, baseY - 82f * s, centerX - 24f * s, baseY - 106f * s, centerX, baseY - 118f * s)
+                    cubicTo(centerX + 24f * s, baseY - 106f * s, centerX + 66f * s, baseY - 82f * s, centerX + 72f * s, baseY - 32f * s)
+                    lineTo(centerX + 150f * s, baseY - 32f * s)
+                    lineTo(centerX + 150f * s, baseY - 88f * s)
+                    lineTo(centerX + 158f * s, baseY - 108f * s)
+                    lineTo(centerX + 166f * s, baseY - 88f * s)
+                    lineTo(centerX + 166f * s, baseY - 26f * s)
+                    lineTo(centerX + 188f * s, baseY - 26f * s)
+                    lineTo(centerX + 188f * s, baseY)
+                    close()
+                }
+                canvas.drawPath(path, fillPaint)
+                canvas.drawPath(path, strokePaint)
+                drawCrescentFinial(canvas, centerX, baseY - 118f * s, s, strokePaint)
+            }
         }
 
-        canvas.drawPath(mosquePath, fillPaint)
-        canvas.drawPath(mosquePath, strokePaint)
-
-        // Crescent finial atop central dome
-        val finialBaseY = baseY - 114f * s
-        canvas.drawLine(centerX, finialBaseY, centerX, finialBaseY - 12f * s, strokePaint)
-        val crescentRect = RectF(
-            centerX - 9f * s,
-            finialBaseY - 26f * s,
-            centerX + 9f * s,
-            finialBaseY - 8f * s
-        )
-        canvas.drawArc(crescentRect, 35f, 250f, false, strokePaint)
-
-        // Subtle arched central doorway inside silhouette
+        // Subtle arched central doorway
         val archPath = Path().apply {
             moveTo(centerX - 20f * s, baseY)
-            lineTo(centerX - 20f * s, baseY - 24f * s)
-            quadTo(centerX, baseY - 46f * s, centerX + 20f * s, baseY - 24f * s)
+            lineTo(centerX - 20f * s, baseY - 22f * s)
+            quadTo(centerX, baseY - 44f * s, centerX + 20f * s, baseY - 22f * s)
             lineTo(centerX + 20f * s, baseY)
         }
         canvas.drawPath(archPath, strokePaint)
+    }
+
+    private fun drawCrescentFinial(
+        canvas: Canvas,
+        centerX: Float,
+        apexY: Float,
+        s: Float,
+        strokePaint: Paint
+    ) {
+        canvas.drawLine(centerX, apexY, centerX, apexY - 11f * s, strokePaint)
+        val crescentRect = RectF(
+            centerX - 9f * s,
+            apexY - 25f * s,
+            centerX + 9f * s,
+            apexY - 7f * s
+        )
+        canvas.drawArc(crescentRect, 35f, 250f, false, strokePaint)
     }
 
     private fun drawOrnamentalDivider(
@@ -681,12 +990,12 @@ object DailyShareCardGenerator {
         arabicTypeface: Typeface,
         palette: CardPalette
     ): MeasuredBodyLayouts {
-        val badgeSize = (baseBadgeSize * scale).coerceAtLeast(14f)
-        val hadithArabicSize = (baseHadithArabicSize * scale).coerceAtLeast(18f)
-        val hadithBodySize = (baseHadithBodySize * scale).coerceAtLeast(15f)
-        val ayahArabicSize = (baseAyahArabicSize * scale).coerceAtLeast(20f)
-        val ayahBodySize = (baseAyahBodySize * scale).coerceAtLeast(15f)
-        val sourceSize = (baseSourceSize * scale).coerceAtLeast(13f)
+        val badgeSize = (baseBadgeSize * scale).coerceAtLeast(12f)
+        val hadithArabicSize = (baseHadithArabicSize * scale).coerceAtLeast(14f)
+        val hadithBodySize = (baseHadithBodySize * scale).coerceAtLeast(13f)
+        val ayahArabicSize = (baseAyahArabicSize * scale).coerceAtLeast(15f)
+        val ayahBodySize = (baseAyahBodySize * scale).coerceAtLeast(13f)
+        val sourceSize = (baseSourceSize * scale).coerceAtLeast(11f)
 
         val badgePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = palette.badgeText
@@ -719,22 +1028,25 @@ object DailyShareCardGenerator {
             textSize = sourceSize
         }
 
+        val lineMultAr = if (scale < 0.60f) 1.15f else 1.25f
+        val lineMultBody = if (scale < 0.60f) 1.14f else 1.22f
+
         val hadithBadgeLayout = buildStaticLayout(hadithHeader, badgePaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.0f)
-        val hadithArabicLayout = buildStaticLayout(hadithArabic, hadithArabicPaint, contentWidth, Layout.Alignment.ALIGN_CENTER, 1.26f)
-        val hadithBodyLayout = buildStaticLayout(hadithBody, hadithBodyPaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.24f)
-        val hadithSourceLayout = buildStaticLayout(hadithSource, sourcePaint, contentWidth, Layout.Alignment.ALIGN_OPPOSITE, 1.1f)
+        val hadithArabicLayout = buildStaticLayout(hadithArabic, hadithArabicPaint, contentWidth, Layout.Alignment.ALIGN_CENTER, lineMultAr)
+        val hadithBodyLayout = buildStaticLayout(hadithBody, hadithBodyPaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, lineMultBody)
+        val hadithSourceLayout = buildStaticLayout(hadithSource, sourcePaint, contentWidth, Layout.Alignment.ALIGN_OPPOSITE, 1.08f)
 
         val ayahBadgeLayout = buildStaticLayout(ayahHeader, badgePaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.0f)
-        val ayahArabicLayout = buildStaticLayout(ayahArabic, ayahArabicPaint, contentWidth, Layout.Alignment.ALIGN_CENTER, 1.28f)
-        val ayahBodyLayout = buildStaticLayout(ayahBody, ayahBodyPaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, 1.24f)
-        val ayahSourceLayout = buildStaticLayout(ayahSource, sourcePaint, contentWidth, Layout.Alignment.ALIGN_OPPOSITE, 1.1f)
+        val ayahArabicLayout = buildStaticLayout(ayahArabic, ayahArabicPaint, contentWidth, Layout.Alignment.ALIGN_CENTER, lineMultAr)
+        val ayahBodyLayout = buildStaticLayout(ayahBody, ayahBodyPaint, contentWidth, Layout.Alignment.ALIGN_NORMAL, lineMultBody)
+        val ayahSourceLayout = buildStaticLayout(ayahSource, sourcePaint, contentWidth, Layout.Alignment.ALIGN_OPPOSITE, 1.08f)
 
-        val spacingScale = scale.coerceIn(0.68f, 1.0f)
-        val cardVerticalPad = (if (isStory) 32f else 20f) * spacingScale
-        val badgeBottomGap = (if (isStory) 20f else 11f) * spacingScale
-        val arabicToBodyGap = (if (isStory) 20f else 11f) * spacingScale
-        val bodyToSourceGap = (if (isStory) 16f else 9f) * spacingScale
-        val betweenCardsGap = (if (isStory) 44f else 24f) * spacingScale
+        val spacingScale = scale.coerceIn(0.42f, 1.0f)
+        val cardVerticalPad = (if (isStory) 30f else 18f) * spacingScale
+        val badgeBottomGap = (if (isStory) 18f else 9f) * spacingScale
+        val arabicToBodyGap = (if (isStory) 18f else 9f) * spacingScale
+        val bodyToSourceGap = (if (isStory) 14f else 8f) * spacingScale
+        val betweenCardsGap = (if (isStory) 40f else 20f) * spacingScale
 
         val hadithCardHeight = cardVerticalPad * 2f +
             hadithBadgeLayout.height + 14f + badgeBottomGap +
@@ -833,10 +1145,6 @@ object DailyShareCardGenerator {
         }
     }
 
-    /**
-     * Returns ONLY direct share targets whose host app is actually installed on this device.
-     * Never crashes if an app is not installed.
-     */
     fun getInstalledShareTargets(context: Context): List<DirectShareTarget> {
         return DirectShareTarget.entries.filter { target ->
             resolveInstalledPackage(context, target) != null
@@ -913,6 +1221,49 @@ object DailyShareCardGenerator {
         }
     }
 
+    /**
+     * Saves PNG card to Gallery AND copies the full bilingual caption (including APP_DOWNLOAD_URL)
+     * to clipboard so the user can post manually from any Facebook account, page, or group.
+     */
+    fun saveCardAndCopyCaption(
+        context: Context,
+        bitmap: Bitmap,
+        entry: DailyInspirationEntry,
+        isEnglish: Boolean,
+        format: ShareCardFormat
+    ): Result<Uri> {
+        val saveRes = saveCardPngToGallery(context, bitmap, entry.dateKey, format)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        clipboard?.setPrimaryClip(
+            ClipData.newPlainText("Nur Bangla Share Caption", entry.formatShareText(isEnglish))
+        )
+        return saveRes
+    }
+
+    /**
+     * Opens the Facebook app (com.facebook.katana) so the user can switch accounts inside Facebook,
+     * falling back to https://www.facebook.com in the browser if the Facebook app is not installed.
+     */
+    fun openFacebookAppToSwitchAccount(context: Context): Boolean {
+        val pm = context.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage("com.facebook.katana")?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (launchIntent != null) {
+            return runCatching {
+                context.startActivity(launchIntent)
+                true
+            }.getOrDefault(false)
+        }
+        return runCatching {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.facebook.com")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+            true
+        }.getOrDefault(false)
+    }
+
     fun shareCardImage(
         context: Context,
         entry: DailyInspirationEntry,
@@ -959,7 +1310,6 @@ object DailyShareCardGenerator {
 
             val pm = context.packageManager
 
-            // Try dedicated Story composer intent first when applicable (Facebook Story / Instagram Story)
             if (target.storyAction != null) {
                 context.grantUriPermission(targetPackage, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 val storyIntent = Intent(target.storyAction).apply {
@@ -976,7 +1326,6 @@ object DailyShareCardGenerator {
                 }
             }
 
-            // Standard direct app ACTION_SEND targeting the installed package
             val sendIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "image/png"
                 setPackage(targetPackage)
@@ -989,7 +1338,6 @@ object DailyShareCardGenerator {
             if (sendIntent.resolveActivity(pm) != null) {
                 context.startActivity(sendIntent)
             } else {
-                // Safe fallback to generic chooser so it never crashes
                 shareCardImage(context, entry, isEnglish, effectiveFormat, theme, fontSize).getOrThrow()
             }
         }

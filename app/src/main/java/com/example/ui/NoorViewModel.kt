@@ -73,6 +73,8 @@ data class NoorUiState(
     val dailyQuranReadKeys: Set<String> = emptySet(),
     val todayInspiration: DailyInspirationEntry? = null,
     val recentInspirations: List<DailyInspirationEntry> = emptyList(),
+    val activeInspirationSlotKey: String = "",
+    val nextInspirationCountdown: String = "",
     val quranAudioState: QuranAudioState = QuranAudioState(),
     val englishDate: String = "",
     val banglaDate: String = "",
@@ -105,6 +107,7 @@ class NoorViewModel(
     }
 
     init {
+        DailyInspirationCatalog.initialize(appContext)
         loadQuranData()
         observeAudioStream()
         observeLocalStreams()
@@ -186,6 +189,8 @@ class NoorViewModel(
                 val zakatHistory = ZakatCalculator.parseHistoryJson(settings.zakatHistoryJson)
                 val todayDateKey = DailyInspirationCatalog.dateKeyFor(now)
                 val todayReadKeys = settings.todayReadAyahKeys(todayDateKey)
+                val activeSlotKey = DailyInspirationCatalog.slotKeyFor(now)
+                val nextSlotCountdown = DailyInspirationCatalog.formatNextSlotCountdown(now, isEn)
                 val recentInspirations = DailyInspirationCatalog.todayAndPreviousSevenDays(
                     todayCalendar = now,
                     hijriDayOffset = settings.hijriDayOffset
@@ -237,6 +242,8 @@ class NoorViewModel(
                     dailyQuranReadKeys = todayReadKeys,
                     todayInspiration = recentInspirations.firstOrNull(),
                     recentInspirations = recentInspirations,
+                    activeInspirationSlotKey = activeSlotKey,
+                    nextInspirationCountdown = nextSlotCountdown,
                     englishDate = BanglaUtils.getGregorianDate(now, isEn),
                     banglaDate = BanglaUtils.getBanglaCalendarDate(now, isEn),
                     hijriDate = BanglaUtils.getHijriDate(now, isEn, settings.hijriDayOffset),
@@ -335,14 +342,30 @@ class NoorViewModel(
                     tomorrowSehriEndMinute = tomorrowSchedule.sehriEndMinute
                 )
                 val currentDayKey = DailyInspirationCatalog.dateKeyFor(now)
-                if (state.todayDateKey.isNotEmpty() && currentDayKey != state.todayDateKey) {
+                val currentSlotKey = DailyInspirationCatalog.slotKeyFor(now)
+                val nextSlotCountdown = DailyInspirationCatalog.formatNextSlotCountdown(now, isEn)
+                val slotChanged = state.activeInspirationSlotKey.isNotEmpty() &&
+                    currentSlotKey != state.activeInspirationSlotKey
+                if ((state.todayDateKey.isNotEmpty() && currentDayKey != state.todayDateKey) || slotChanged) {
                     tzRefreshTick.value = nowMillis
+                }
+                val refreshedInspirations = if (slotChanged) {
+                    DailyInspirationCatalog.todayAndPreviousSevenDays(
+                        todayCalendar = now,
+                        hijriDayOffset = state.settings.hijriDayOffset
+                    )
+                } else {
+                    null
                 }
                 _uiState.update {
                     it.copy(
                         nextWaqtInfo = nextWaqt,
                         currentWaqt = currentWaqt,
-                        sehriIftarCountdown = sehriIftarCd
+                        sehriIftarCountdown = sehriIftarCd,
+                        activeInspirationSlotKey = currentSlotKey,
+                        nextInspirationCountdown = nextSlotCountdown,
+                        todayInspiration = refreshedInspirations?.firstOrNull() ?: it.todayInspiration,
+                        recentInspirations = refreshedInspirations ?: it.recentInspirations
                     )
                 }
             }
